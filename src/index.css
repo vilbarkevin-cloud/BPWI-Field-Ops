@@ -1,0 +1,194 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=SF+Mono:wght@400;500;600&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --color-primary: #0066CC;
+  --color-on-primary: #ffffff;
+  --color-primary-container: #DBEAFE;
+  --color-on-primary-container: #003D7A;
+
+  --color-secondary: #00A8A8;
+  --color-on-secondary: #ffffff;
+  
+  --color-tertiary: #FF6B35;
+  --color-on-tertiary: #ffffff;
+  --color-tertiary-container: #FFF2ED;
+  --color-on-tertiary-container: #A83A11;
+  
+  --color-success: #22C55E; 
+  --color-warning: #FCD34D;
+  
+  --color-error: #EF4444;
+  --color-on-error: #ffffff;
+  --color-error-container: #FEF2F2;
+  --color-on-error-container: #7F1D1D;
+
+  --color-background: #F3F4F6;
+  --color-on-background: #1F2937;
+  
+  --color-surface-container-lowest: #ffffff;
+  --color-surface-container-low: #F9FAFB;
+  --color-surface-container: #F3F4F6;
+  --color-surface-container-high: #E5E7EB;
+  --color-surface-container-highest: #D1D5DB;
+
+  --color-surface: #ffffff;
+  --color-on-surface: #1F2937;
+  --color-surface-variant: #F3F4F6;
+  --color-on-surface-variant: #6B7280;
+  
+  --color-inverse-surface: #1F2937;
+  --color-inverse-on-surface: #ffffff;
+  --color-inverse-primary: #DBEAFE;
+  --color-black: #000000;
+
+  --color-outline: #D1D5DB;
+  --color-outline-variant: #E5E7EB;
+
+  --spacing-xs: 4px;
+  --spacing-sm: 8px;
+  --spacing-md: 12px;
+  --spacing-lg: 16px;
+  --spacing-xl: 24px;
+  --spacing-2xl: 32px;
+  
+  --spacing-margin-mobile: 16px;
+  --spacing-gutter: 24px;
+  --spacing-margin-desktop: 32px;
+  --spacing-base: 4px;
+
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "SF Mono", Monaco, "Cascadia Code", "Roboto Mono", monospace;
+  
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  
+  --shadow-sm: 0px 1px 3px rgba(0, 0, 0, 0.1);
+  --shadow-md: 0px 4px 12px rgba(0, 0, 0, 0.15);
+  --shadow-lg: 0px 20px 25px rgba(0, 0, 0, 0.15);
+}
+
+@utility font-body-md { font-family: "Inter", sans-serif; }
+@utility font-label-sm { font-family: "Inter", sans-serif; }
+@utility font-headline-md { font-family: "Inter", sans-serif; }
+@utility font-label-md { font-family: "Inter", sans-serif; }
+@utility font-headline-lg { font-family: "Inter", sans-serif; }
+@utility font-headline-lg-mobile { font-family: "Inter", sans-serif; }
+@utility font-display { font-family: "Inter", sans-serif; }
+@utility font-body-lg { font-family: "Inter", sans-serif; }
+
+@utility text-body-md { font-size: 12px; line-height: 16px; font-weight: 400; }
+@utility text-label-sm { font-size: 10px; line-height: 12px; font-weight: 500; }
+@utility text-headline-md { font-size: 14px; line-height: 20px; font-weight: 600; }
+@utility text-label-md { font-size: 12px; line-height: 16px; font-weight: 600; }
+@utility text-headline-lg { font-size: 18px; line-height: 24px; letter-spacing: -0.02em; font-weight: 700; }
+@utility text-headline-lg-mobile { font-size: 15px; line-height: 20px; font-weight: 700; }
+@utility text-display { font-size: 22px; line-height: 28px; letter-spacing: -0.03em; font-weight: 800; }
+@utility text-body-lg { font-size: 13px; line-height: 18px; font-weight: 400; }
+
+@layer components {
+  .btn, .btn-primary, .btn-secondary, .btn-danger, .btn-outline {
+    @apply inline-flex items-center justify-center font-semibold rounded-md transition-all duration-200 outline-none;
+  }
+  .btn:focus-visible, .btn-primary:focus-visible, .btn-secondary:focus-visible, .btn-danger:focus-visible, .btn-outline:focus-visible {
+    @apply outline outline-3 outline-primary outline-offset-2;
+  }
+  .btn:disabled, .btn-primary:disabled, .btn-secondary:disabled, .btn-danger:disabled, .btn-outline:disabled {
+    @apply opacity-60 bg-surface-container-highest border border-outline-variant text-on-surface-variant cursor-not-allowed pointer-events-none;
+  }
+  .btn:active:not(:disabled), .btn-primary:active:not(:disabled), .btn-secondary:active:not(:disabled), .btn-danger:active:not(:disabled), .btn-outline:active:not(:disabled) {
+    @apply scale-[0.98];
+  }
+  
+  .btn-primary {
+    @apply bg-primary text-white shadow-sm hover:shadow-md;
+  }
+  .btn-primary:hover:not(:disabled) {
+    background-color: #0052A3; /* Darker blue */
+  }
+
+  .btn-secondary {
+    @apply bg-secondary text-white shadow-sm hover:shadow-md;
+  }
+  .btn-secondary:hover:not(:disabled) {
+    background-color: #008A8A; /* Darker teal */
+  }
+
+  .btn-danger {
+    @apply bg-error text-white shadow-sm hover:shadow-md;
+  }
+  .btn-danger:hover:not(:disabled) {
+    background-color: #DC2626;
+  }
+
+  .btn-outline {
+    @apply bg-transparent text-primary border border-primary;
+  }
+  .btn-outline:hover:not(:disabled) {
+    @apply bg-primary/10;
+  }
+
+  .form-input {
+    @apply w-full h-11 px-3 py-2 rounded-md border border-outline bg-white transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent hover:border-primary disabled:bg-surface-container disabled:text-on-surface-variant disabled:cursor-not-allowed;
+  }
+  .form-input.error {
+    @apply border-error bg-error-container focus:ring-error hover:border-error;
+  }
+
+  /* Skeleton animation */
+  .skeleton {
+    @apply bg-surface-container-high relative overflow-hidden rounded-md;
+  }
+  .skeleton::after {
+    content: "";
+    @apply absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/40 to-transparent animate-[shimmer_1.5s_infinite];
+  }
+
+  @keyframes shimmer {
+    100% { transform: translateX(100%); }
+  }
+}
+
+@layer utilities {
+  .hide-scrollbar {
+    -ms-overflow-style: none;  /* IE and Edge */
+    scrollbar-width: none;  /* Firefox */
+  }
+  .hide-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .pulse-indicator {
+    animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: .5; }
+  }
+
+  .pulse-red {
+    animation: pulseRed 2s infinite;
+  }
+  @keyframes pulseRed {
+    0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
+    70% { transform: scale(1); box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); }
+    100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+  }
+}
+
+@media print {
+  .hide-on-print {
+    display: none !important;
+  }
+  .printable-area {
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 100% !important;
+    box-shadow: none !important;
+    border: none !important;
+  }
+  body, main, #root {
+    background: white !important;
+  }
+}

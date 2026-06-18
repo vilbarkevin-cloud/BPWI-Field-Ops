@@ -15,6 +15,8 @@ import { TripTicketView } from './views/TripTicketView';
 import { LoginView } from './views/LoginView';
 import { MapView } from './views/MapView';
 import { WifiOff, Wifi, Zap, RefreshCw } from 'lucide-react';
+import { collection, onSnapshot, query } from 'firebase/firestore';
+import { db } from './lib/firebase';
 import { useNetworkInfo } from './utils/useNetworkInfo';
 import { useSyncQueue } from './utils/useSyncQueue';
 import { auth } from './lib/firebase';
@@ -25,6 +27,7 @@ export default function App() {
   const [currentUser, setCurrentUser] = useState<string | null>(null);
   const [currentUid, setCurrentUid] = useState<string | null>(null);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [notificationCount, setNotificationCount] = useState(0);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   
   const { isLowDataMode } = useNetworkInfo();
@@ -42,6 +45,28 @@ export default function App() {
       window.removeEventListener('offline', handleOffline);
     };
   }, []);
+
+  useEffect(() => {
+    if (!currentUid) return;
+    // Count open incidents
+    const incQ = query(collection(db, `users/${currentUid}/incidents`));
+    const invQ = query(collection(db, `users/${currentUid}/inventory`));
+    let openIncidents = 0;
+    let lowStock = 0;
+
+    const unsubInc = onSnapshot(incQ, (snap) => {
+      openIncidents = snap.docs.filter(d => d.data().status === 'open').length;
+      setNotificationCount(openIncidents + lowStock);
+    });
+    const unsubInv = onSnapshot(invQ, (snap) => {
+      lowStock = snap.docs.filter(d => {
+        const item = d.data();
+        return item.currentStock <= item.minThreshold;
+      }).length;
+      setNotificationCount(openIncidents + lowStock);
+    });
+    return () => { unsubInc(); unsubInv(); };
+  }, [currentUid]);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
@@ -88,7 +113,11 @@ export default function App() {
       
       <main className="flex-1 md:ml-64 flex flex-col h-[100dvh] overflow-y-auto w-full pb-[68px] md:pb-0 relative printable-area">
         <div className="hide-on-print">
-          <TopBar onMenuClick={() => setIsMobileMenuOpen(true)} />
+          <TopBar
+            onMenuClick={() => setIsMobileMenuOpen(true)}
+            notificationCount={notificationCount}
+            onNotificationClick={() => setActiveTab('incidents')}
+          />
         </div>
         
         {!isOnline && (
@@ -116,11 +145,11 @@ export default function App() {
             {activeTab === 'activity' && <ActivityView isOnline={isOnline} currentUser={currentUser} currentUid={currentUid} />}
             {activeTab === 'tasks' && <TasksView currentUser={currentUser} currentUid={currentUid} />}
             {activeTab === 'pms' && <PmsView currentUid={currentUid} />}
-            {activeTab === 'incidents' && <IncidentsView />}
+            {activeTab === 'incidents' && <IncidentsView currentUid={currentUid} currentUser={currentUser} />}
             {activeTab === 'attendance' && <AttendanceView currentUser={currentUser} currentUid={currentUid} />}
             {activeTab === 'inventory' && <InventoryView isOnline={isOnline} currentUid={currentUid} />}
             {activeTab === 'trip-tickets' && <TripTicketView isOnline={isOnline} currentUid={currentUid} currentUser={currentUser} />}
-            {activeTab === 'kpi' && <KpiView />}
+            {activeTab === 'kpi' && <KpiView currentUid={currentUid} />}
             {activeTab === 'staff' && <StaffView currentUser={currentUser} currentUid={currentUid} />}
             {activeTab === 'live-map' && <MapView currentUser={currentUser} currentUid={currentUid} />}
         </div>

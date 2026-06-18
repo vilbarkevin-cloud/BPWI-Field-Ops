@@ -52,7 +52,7 @@ export function PmsView({ currentUid }: PmsViewProps) {
     const fetchActivities = async () => {
       try {
         const q1 = query(collection(db, `users/${currentUid}/activities`), where('type', '==', 'flushing'));
-        const q2 = query(collection(db, `users/${currentUid}/activities`), where('type', '==', 'tank_clean'));
+        const q2 = query(collection(db, `users/${currentUid}/activities`), where('type', '==', 'tank_cleaning'));
         const [snap1, snap2] = await Promise.all([getDocs(q1), getDocs(q2)]);
         setCompletedActivities([...snap1.docs.map(d => ({...d.data(), id: d.id})), ...snap2.docs.map(d => ({...d.data(), id: d.id}))]);
       } catch (e) {

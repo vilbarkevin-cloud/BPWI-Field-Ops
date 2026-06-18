@@ -30,6 +30,7 @@ import {
   getDocs,
 } from "firebase/firestore";
 import { defaultStaff as dataStoreDefaultStaff } from "../lib/dataStore";
+import { ACTIVITY_TYPES } from "../lib/activityTypes";
 
 export type TaskPriority = "high" | "medium" | "low";
 export type TaskStatus = "pending" | "in-progress" | "completed";
@@ -50,24 +51,8 @@ export interface Task {
   accountName?: string;
 }
 
-const activityTypes = [
-  { id: "meter_inst", label: "Meter Installation" },
-  { id: "meter_replacement", label: "Meter Replacement" },
-  { id: "meter_test", label: "Meter Test" },
-  { id: "reconnection", label: "Reconnection" },
-  { id: "leak_repair", label: "Leak Repair" },
-  { id: "leak_detection", label: "Leak Detection" },
-  { id: "flushing", label: "Flushing" },
-  { id: "tank_cleaning", label: "Tank Cleaning" },
-  { id: "tank_opening", label: "Tank Opening & Closing" },
-  { id: "pump_monitoring", label: "Pump House Monitoring" },
-  { id: "genset_monitoring", label: "Genset Monitoring" },
-  { id: "backwash", label: "Backwash" },
-  { id: "hydro_testing", label: "Hydro Testing" },
-  { id: "well_pull_out", label: "Well Pull-Out" },
-  { id: "garbage_collection", label: "Garbage Collection" },
-  { id: "plant_watering", label: "Plant Watering" },
-];
+// Sourced from shared lib/activityTypes.ts
+const activityTypes = ACTIVITY_TYPES;
 
 const defaultTasks: Task[] = [
   {

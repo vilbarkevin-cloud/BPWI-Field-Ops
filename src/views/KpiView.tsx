@@ -1,21 +1,52 @@
 import React, { useState, useEffect } from 'react';
+import { db } from '../lib/firebase';
+import { collection, onSnapshot, query } from 'firebase/firestore';
 import { BarChart3, TrendingUp, TrendingDown, Target, Clock, CheckCircle2, X, Download, Award, ShieldAlert, Zap, Medal, Star } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, BarChart, Bar, Legend, Cell } from 'recharts';
 import { defaultStaff } from '../lib/dataStore';
 
-export function KpiView() {
+interface KpiViewProps {
+  currentUid?: string | null;
+}
+
+export function KpiView({ currentUid }: KpiViewProps) {
   const [customStaff, setCustomStaff] = useState<string[]>([]);
   const [selectedStaff, setSelectedStaff] = useState<string | null>(null);
   
+  const [activities, setActivities] = useState<any[]>([]);
+  const [tasks, setTasks] = useState<any[]>([]);
+
   useEffect(() => {
-    const stored = localStorage.getItem('watsanStaff');
-    if (stored) {
-      const parsed = JSON.parse(stored);
-      setCustomStaff(parsed.filter((s: string) => !s.includes('Kevin Vilbar') && s !== 'Darwil Fernandez'));
+    // Load staff: Firestore first, localStorage fallback
+    if (currentUid) {
+      const q = query(collection(db, `users/${currentUid}/staff`));
+      const unsub = onSnapshot(q, (snap) => {
+        if (!snap.empty) {
+          setCustomStaff(snap.docs.map(d => d.data().name as string));
+        } else {
+          const stored = localStorage.getItem('watsanStaff');
+          setCustomStaff(stored ? JSON.parse(stored) : defaultStaff);
+        }
+      });
+      return () => unsub();
     } else {
-      setCustomStaff(defaultStaff);
+      const stored = localStorage.getItem('watsanStaff');
+      setCustomStaff(stored ? JSON.parse(stored).filter((s: string) => !s.includes('Kevin Vilbar')) : defaultStaff);
     }
-  }, []);
+  }, [currentUid]);
+
+  useEffect(() => {
+    if (!currentUid) return;
+    const actQ = query(collection(db, `users/${currentUid}/activities`));
+    const taskQ = query(collection(db, `users/${currentUid}/tasks`));
+    const unsubAct = onSnapshot(actQ, (snap) => {
+      setActivities(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    });
+    const unsubTask = onSnapshot(taskQ, (snap) => {
+      setTasks(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    });
+    return () => { unsubAct(); unsubTask(); };
+  }, [currentUid]);
 
   // Generate mock KPI data for each staff member
   const getMockKPIs = (name: string, index: number) => {

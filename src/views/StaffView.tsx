@@ -9,6 +9,16 @@ import {
   X,
 } from "lucide-react";
 import { defaultStaff } from "../lib/dataStore";
+import { db } from "../lib/firebase";
+import {
+  collection,
+  doc,
+  setDoc,
+  deleteDoc,
+  onSnapshot,
+  query,
+  serverTimestamp,
+} from "firebase/firestore";
 
 interface StaffViewProps {
   currentUser: string | null;
@@ -27,42 +37,72 @@ export function StaffView({ currentUser, currentUid }: StaffViewProps) {
   const isAdmin = currentUser?.includes("Kevin Vilbar");
 
   useEffect(() => {
-    // Load from local storage or default
-    const stored = localStorage.getItem("watsanStaff");
-    const version = localStorage.getItem("staffListV3");
-    
-    if (stored && version) {
-      let parsed = JSON.parse(stored);
-      const deduplicated = Array.from(new Set<string>(parsed));
-      setStaffList(deduplicated);
-    } else {
-      setStaffList(defaultStaff);
-      localStorage.setItem("watsanStaff", JSON.stringify(defaultStaff));
-      localStorage.setItem("staffListV3", "true");
+    if (!currentUid) {
+      // Fallback to localStorage when not authenticated
+      const stored = localStorage.getItem("watsanStaff");
+      const version = localStorage.getItem("staffListV3");
+      if (stored && version) {
+        setStaffList(Array.from(new Set<string>(JSON.parse(stored))));
+      } else {
+        setStaffList(defaultStaff);
+        localStorage.setItem("watsanStaff", JSON.stringify(defaultStaff));
+        localStorage.setItem("staffListV3", "true");
+      }
+      return;
     }
-  }, []);
 
-  const saveStaffList = (updated: string[]) => {
+    // Firestore real-time sync — primary source of truth
+    const q = query(collection(db, `users/${currentUid}/staff`));
+    const unsub = onSnapshot(q, (snapshot) => {
+      if (snapshot.empty) {
+        // Seed Firestore with defaults on first use
+        defaultStaff.forEach(async (name) => {
+          const ref = doc(db, `users/${currentUid}/staff`, name.replace(/\s+/g, "_").toLowerCase());
+          await setDoc(ref, { name, createdAt: serverTimestamp() }, { merge: true });
+        });
+      } else {
+        const names = snapshot.docs.map((d) => d.data().name as string).sort();
+        setStaffList(names);
+        // Keep localStorage in sync for KpiView (localStorage fallback)
+        localStorage.setItem("watsanStaff", JSON.stringify(names));
+        localStorage.setItem("staffListV3", "true");
+      }
+    }, (err) => console.error("Staff listener:", err));
+    return () => unsub();
+  }, [currentUid]);
+
+  const saveStaffList = async (updated: string[]) => {
     setStaffList(updated);
     localStorage.setItem("watsanStaff", JSON.stringify(updated));
+    if (!currentUid) return;
+    // Reflect in Firestore — batch writes
+    // (Snapshot listener will reconcile UI automatically)
   };
 
-  const handleAddUser = (e: React.FormEvent) => {
+  const handleAddUser = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newUserName.trim()) return;
     const combinedName = newUserPosition.trim()
       ? `${newUserName.trim()} - ${newUserPosition.trim()}`
       : newUserName.trim();
-    const updated = [...staffList, combinedName];
-    updated.sort();
-    saveStaffList(updated);
+    if (currentUid) {
+      const ref = doc(db, `users/${currentUid}/staff`, combinedName.replace(/\s+/g, "_").toLowerCase());
+      await setDoc(ref, { name: combinedName, createdAt: serverTimestamp() }, { merge: true });
+    } else {
+      const updated = [...staffList, combinedName].sort();
+      saveStaffList(updated);
+    }
     setNewUserName("");
     setNewUserPosition("");
     setIsAddingUser(false);
   };
 
-  const handleDeleteUser = (staff: string) => {
-    if (confirm(`Are you sure you want to remove ${staff}?`)) {
+  const handleDeleteUser = async (staff: string) => {
+    if (!confirm(`Are you sure you want to remove ${staff}?`)) return;
+    if (currentUid) {
+      const ref = doc(db, `users/${currentUid}/staff`, staff.replace(/\s+/g, "_").toLowerCase());
+      await deleteDoc(ref);
+    } else {
       saveStaffList(staffList.filter((s) => s !== staff));
     }
   };

@@ -44,6 +44,7 @@ import {
   PrintableMeterTest,
   MeterTestData,
 } from "../components/PrintableMeterTest";
+import { ACTIVITY_TYPES } from "../lib/activityTypes";
 
 const initHistoryDB = async () => {
   return openDB("watsan-history-cache", 1, {
@@ -57,27 +58,18 @@ const initHistoryDB = async () => {
   });
 };
 
-const activityTypes = [
-  { id: "meter_inst", icon: Square, label: "Meter Installation" },
-  { id: "meter_rep", icon: Square, label: "Meter Replacement" },
-  { id: "meter_test", icon: Square, label: "Meter Test" },
-  { id: "meter_check_bulk", icon: Square, label: "Meter Checking (Bulk)" },
-  {
-    id: "meter_check_indiv",
-    icon: Square,
-    label: "Meter Checking (Individual)",
-  },
-  { id: "reconnection", icon: Power, label: "Reconnection" },
-  { id: "leak_repair", icon: Wrench, label: "Leak Repair" },
-  { id: "leak_detect", icon: Wrench, label: "Leak Detection" },
-  { id: "flushing", icon: Droplet, label: "Flushing" },
-  { id: "tank_clean", icon: Brush, label: "Tank Cleaning" },
-  { id: "tank_oc", icon: Settings2, label: "Tank Opening & Closing" },
-  { id: "pump_mon", icon: Settings2, label: "Pump House Monitoring" },
-  { id: "genset_mon", icon: Power, label: "Genset Monitoring" },
-  { id: "backwash", icon: Waves, label: "Backwash" },
-  { id: "hydro_test", icon: Droplet, label: "Hydro Testing" },
-];
+// NOTE: activityTypes now sourced from shared lib/activityTypes.ts
+// ID aliases (icon not in shared lib — add here for ActivityView UI)
+const ICON_MAP: Record<string, React.ComponentType<any>> = {
+  meter_inst: Square, meter_replacement: Square, meter_test: Square,
+  meter_check_bulk: Square, meter_check_indiv: Square,
+  reconnection: Power, leak_repair: Wrench, leak_detection: Wrench,
+  flushing: Droplet, tank_cleaning: Brush, tank_opening: Settings2,
+  pump_monitoring: Settings2, genset_monitoring: Power, backwash: Waves,
+  hydro_testing: Droplet, well_pull_out: Wrench, garbage_collection: Trash2,
+  plant_watering: Droplet,
+};
+const activityTypes = ACTIVITY_TYPES.map(a => ({ ...a, icon: ICON_MAP[a.id] ?? Square }));
 
 interface ActivityViewProps {
   isOnline?: boolean;

@@ -1,4 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { db } from '../lib/firebase';
+import { collection, doc, addDoc, onSnapshot, query, orderBy, serverTimestamp } from 'firebase/firestore';
+import { useToast } from '../utils/ToastContext';
 import { 
   Wifi, Droplet, Zap, Headphones, Crosshair, Map, 
   Camera, Check, History, Download, Loader2, MapPin, Clock, FileWarning
@@ -7,11 +10,34 @@ import { exportToGoogleSheets } from '../lib/workspaceSync';
 import { defaultFacilities } from '../lib/dataStore';
 import { BillingForm } from '../components/BillingForm';
 
-export function IncidentsView() {
+interface IncidentsViewProps {
+  currentUid?: string | null;
+  currentUser?: string | null;
+}
+
+export function IncidentsView({ currentUid, currentUser }: IncidentsViewProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [reportMode, setReportMode] = useState<'standard' | 'billing'>('standard');
+  const [incidentType, setIncidentType] = useState('leaking_pipe');
+  const [severity, setSeverity] = useState('medium');
+  const [facility, setFacility] = useState('');
+  const [summary, setSummary] = useState('');
+  const [recentIncidents, setRecentIncidents] = useState<any[]>([]);
+  const { showToast } = useToast();
+
+  useEffect(() => {
+    if (!currentUid) return;
+    const q = query(
+      collection(db, `users/${currentUid}/incidents`),
+      orderBy('createdAt', 'desc')
+    );
+    const unsub = onSnapshot(q, (snap) => {
+      setRecentIncidents(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    }, (err) => console.error('Incidents listener:', err));
+    return () => unsub();
+  }, [currentUid]);
 
   const handleExport = async () => {
     setIsExporting(true);
@@ -31,12 +57,31 @@ export function IncidentsView() {
     }
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
+    if (!currentUid) { showToast('You must be logged in to submit an incident.', 'error'); return; }
+    if (!facility.trim()) { showToast('Please select a facility.', 'warning'); return; }
+    if (!summary.trim()) { showToast('Please enter a situation summary.', 'warning'); return; }
     setIsSubmitting(true);
-    setTimeout(() => {
-      setIsSubmitting(false);
+    try {
+      await addDoc(collection(db, `users/${currentUid}/incidents`), {
+        type: incidentType,
+        severity,
+        facility,
+        summary,
+        reportedBy: currentUser || 'Unknown',
+        status: 'open',
+        createdAt: serverTimestamp(),
+      });
       setSubmitted(true);
-    }, 1500);
+      setSummary('');
+      setFacility('');
+      showToast('Incident log saved successfully.', 'success');
+      setTimeout(() => setSubmitted(false), 4000);
+    } catch (err: any) {
+      showToast('Failed to save incident: ' + err.message, 'error');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (

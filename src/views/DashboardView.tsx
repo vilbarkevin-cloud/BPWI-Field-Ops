@@ -40,6 +40,7 @@ import {
   RadialBar,
 } from "recharts";
 import { useNetworkInfo } from "../utils/useNetworkInfo";
+import { ACTIVITY_TYPES, ACTIVITY_TYPE_MAP } from "../lib/activityTypes";
 import { db } from "../lib/firebase";
 import {
   collection,
@@ -54,25 +55,8 @@ interface DashboardViewProps {
   currentUid?: string | null;
 }
 
-const activityTypes = [
-  { id: "all", label: "All Activities" },
-  { id: "meter_inst", label: "Meter Installation" },
-  { id: "meter_replacement", label: "Meter Replacement" },
-  { id: "meter_test", label: "Meter Test" },
-  { id: "reconnection", label: "Reconnection" },
-  { id: "leak_repair", label: "Leak Repair" },
-  { id: "leak_detection", label: "Leak Detection" },
-  { id: "flushing", label: "Flushing" },
-  { id: "tank_cleaning", label: "Tank Cleaning" },
-  { id: "tank_opening", label: "Tank Opening & Closing" },
-  { id: "pump_monitoring", label: "Pump House Monitoring" },
-  { id: "genset_monitoring", label: "Genset Monitoring" },
-  { id: "backwash", label: "Backwash" },
-  { id: "hydro_testing", label: "Hydro Testing" },
-  { id: "well_pull_out", label: "Well Pull-Out" },
-  { id: "garbage_collection", label: "Garbage Collection" },
-  { id: "plant_watering", label: "Plant Watering" },
-];
+// Sourced from shared lib/activityTypes.ts — "all" prepended for dashboard filter
+const activityTypes = [{ id: "all", label: "All Activities" }, ...ACTIVITY_TYPES];
 
 const mockDataByActivity: Record<string, any[]> = {
   all: [
@@ -120,10 +104,11 @@ const getTrendData = (activityId: string, activities: any[]) => {
   const hasRealData = activities.length > 0;
 
   if (!hasRealData) {
+    // Deterministic placeholder — no real data yet
     return defaultMock.map((d) => ({
       name: d.name,
-      completed: Math.floor(d.completed / (Math.random() * 3 + 2)),
-      pending: Math.floor(d.pending / (Math.random() * 3 + 2)),
+      completed: Math.floor(d.completed / 3),
+      pending: Math.floor(d.pending / 2),
     }));
   }
 
@@ -140,10 +125,8 @@ const getTrendData = (activityId: string, activities: any[]) => {
 
     return {
       name: dayName,
-      completed:
-        dayActivities.filter((a) => a.status === "completed").length +
-        Math.floor(Math.random() * 2), // random baseline just so it's rarely 0
-      pending: Math.floor(Math.random() * 5), // Mock pending tasks for trend since activities are only completions
+      completed: dayActivities.filter((a) => a.status === "completed").length
+      pending: dayActivities.filter((a) => a.status === "pending").length,
     };
   });
 };

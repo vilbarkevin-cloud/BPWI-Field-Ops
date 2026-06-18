@@ -1,0 +1,53 @@
+{
+  "entities": {
+    "Task": {
+      "title": "Task",
+      "description": "A scheduled piece of operational work or alert.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "The UID of the creator or owner" },
+        "title": { "type": "string" },
+        "priority": { "type": "string", "enum": ["low", "medium", "high"] },
+        "location": { "type": "string" },
+        "deadline": { "type": "string" },
+        "description": { "type": "string" },
+        "assignedTo": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "in-progress", "completed"] },
+        "isSynced": { "type": "boolean" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["userId", "title", "priority", "location", "status", "createdAt", "updatedAt"]
+    },
+    "Activity": {
+      "title": "Activity",
+      "description": "An ad-hoc logged activity or report.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "The UID of the staff who logged it" },
+        "type": { "type": "string" },
+        "area": { "type": "string" },
+        "siteOrWell": { "type": "string" },
+        "blockLot": { "type": "string" },
+        "staff": { "type": "array", "items": { "type": "string" } },
+        "date": { "type": "string" },
+        "status": { "type": "string" },
+        "isSynced": { "type": "boolean" },
+        "details": { "type": "object" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["userId", "type", "area", "status", "date", "createdAt", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "users/{userId}/tasks/{taskId}": {
+      "schema": { "$ref": "#/entities/Task" },
+      "description": "Tasks are stored under each user to isolate them for personal use."
+    },
+    "users/{userId}/activities/{activityId}": {
+      "schema": { "$ref": "#/entities/Activity" },
+      "description": "Activities logged by the user."
+    }
+  }
+}

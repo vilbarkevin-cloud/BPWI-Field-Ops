@@ -1,0 +1,152 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Primitive definition
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+    function isSignedIn() { return request.auth != null; }
+    function isValidId(id) { 
+        return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); 
+    }
+
+    // Validation Blueprint for Task
+    function isValidTask(data, uid) {
+      return data.keys().hasAll(['userId', 'title', 'priority', 'location', 'status', 'createdAt', 'updatedAt']) 
+             && data.keys().size() >= 7
+             && data.userId == uid
+             && data.title is string && data.title.size() <= 200
+             && data.priority is string && data.priority.matches('^(low|medium|high)$')
+             && data.location is string && data.location.size() <= 200
+             && data.status is string && data.status.matches('^(pending|in-progress|completed)$')
+             && data.createdAt is timestamp
+             && data.updatedAt is timestamp;
+    }
+
+    // Validation Blueprint for Activity
+    function isValidActivity(data, uid) {
+      return data.keys().hasAll(['userId', 'type', 'area', 'status', 'date', 'createdAt', 'updatedAt'])
+             && data.keys().size() >= 7
+             && data.userId == uid
+             && data.type is string && data.type.size() <= 100
+             && data.area is string && data.area.size() <= 100
+             && data.status is string && data.status.size() <= 100
+             && data.createdAt is timestamp
+             && data.updatedAt is timestamp;
+    }
+
+    match /users/{userId}/tasks/{taskId} {
+      allow read: if isSignedIn() && request.auth.uid == userId;
+      
+      allow create: if isSignedIn() 
+                    && request.auth.uid == userId
+                    && isValidId(taskId)
+                    && isValidId(userId)
+                    && isValidTask(incoming(), request.auth.uid)
+                    && incoming().createdAt == request.time
+                    && incoming().updatedAt == request.time;
+                    
+      allow update: if isSignedIn()
+                    && request.auth.uid == userId
+                    && existing().userId == request.auth.uid
+                    && isValidId(taskId)
+                    && isValidId(userId)
+                    && isValidTask(incoming(), request.auth.uid)
+                    && incoming().createdAt == existing().createdAt
+                    && incoming().updatedAt == request.time
+                    && (
+                      // Action: Standard update
+                      incoming().diff(existing()).affectedKeys().hasOnly(['title', 'priority', 'location', 'description', 'assignedTo', 'deadline', 'isSynced', 'status', 'updatedAt', 'photoUrl', 'consumedParts'])
+                    );
+
+      allow delete: if isSignedIn() && request.auth.uid == userId && existing().userId == request.auth.uid;
+    }
+
+    // Validation Blueprint for Inventory
+    function isValidInventory(data, uid) {
+      return data.keys().hasAll(['name', 'category', 'currentStock', 'unit', 'minThreshold', 'lastUpdated', 'createdAt', 'updatedAt'])
+             && data.name is string
+             && data.category is string
+             && data.currentStock is number
+             && data.unit is string
+             && data.minThreshold is number
+             && data.lastUpdated is string
+             && data.createdAt is timestamp
+             && data.updatedAt is timestamp;
+    }
+
+    match /users/{userId}/inventory/{itemId} {
+      allow read: if isSignedIn() && request.auth.uid == userId;
+      
+      allow create: if isSignedIn() 
+                    && request.auth.uid == userId
+                    && isValidId(itemId)
+                    && isValidId(userId)
+                    && isValidInventory(incoming(), request.auth.uid)
+                    && incoming().createdAt == request.time
+                    && incoming().updatedAt == request.time;
+                    
+      allow update: if isSignedIn()
+                    && request.auth.uid == userId
+                    && isValidId(itemId)
+                    && isValidId(userId)
+                    && isValidInventory(incoming(), request.auth.uid)
+                    && incoming().createdAt == existing().createdAt
+                    && incoming().updatedAt == request.time;
+
+      allow delete: if isSignedIn() && request.auth.uid == userId;
+    }
+
+    match /shared/{docId} {
+      allow read, write: if isSignedIn();
+    }
+
+    match /{path=**}/tripTickets/{ticketId} {
+      allow read: if request.auth != null;
+    }
+
+    match /users/{userId}/tripTickets/{ticketId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && request.auth.uid == userId;
+    }
+
+    match /users/{userId}/activities/{activityId} {
+      allow read: if isSignedIn() && request.auth.uid == userId;
+      
+      allow create: if isSignedIn() 
+                    && request.auth.uid == userId
+                    && isValidId(activityId)
+                    && isValidId(userId)
+                    && isValidActivity(incoming(), request.auth.uid)
+                    && incoming().createdAt == request.time
+                    && incoming().updatedAt == request.time;
+                    
+      allow update: if isSignedIn()
+                    && request.auth.uid == userId
+                    && existing().userId == request.auth.uid
+                    && isValidId(activityId)
+                    && isValidId(userId)
+                    && isValidActivity(incoming(), request.auth.uid)
+                    && incoming().createdAt == existing().createdAt
+                    && incoming().updatedAt == request.time
+                    && (
+                      // Action: Standard update
+                      incoming().diff(existing()).affectedKeys().hasOnly(['type', 'area', 'siteOrWell', 'blockLot', 'staff', 'date', 'status', 'isSynced', 'details', 'updatedAt'])
+                    );
+
+      allow delete: if isSignedIn() && request.auth.uid == userId && existing().userId == request.auth.uid;
+    }
+    match /{path=**}/attendance/{attendanceId} {
+      allow read: if isSignedIn();
+    }
+    match /users/{userId}/attendance/{attendanceId} {
+      allow write: if isSignedIn() && request.auth.uid == userId;
+    }
+    match /users/{userId}/areas/{areaId} {
+      allow read, write: if isSignedIn() && request.auth.uid == userId;
+    }
+  }
+}

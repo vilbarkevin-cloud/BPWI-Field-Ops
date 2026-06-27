@@ -1,4 +1,5 @@
 import React, { forwardRef } from 'react';
+import { Droplet } from 'lucide-react';
 
 export interface MeterTestData {
   account: string;
@@ -7,6 +8,7 @@ export interface MeterTestData {
   natureOfTest: string;
   paymentDetails?: string;
   meterBrand: string;
+  meterSerialNumber?: string;
   volumeOfWater: number; // usually 30 liters in the screenshot, or whatever
   natureOfMeter: string; // Old, New
   reading1_init: number;
@@ -23,6 +25,7 @@ export interface MeterTestData {
   recommendation: string; // Replace, Retain
   testedBy: string;
   witnessedBy: string;
+  witnessSignatureImg?: string;
   checkedBy: string;
   finalDecision: string; // Proceed, Override: Retain, RETEST
 }
@@ -32,9 +35,7 @@ export const PrintableMeterTest = forwardRef<HTMLDivElement, { data: MeterTestDa
     <div ref={ref} className="p-8 bg-white text-black max-w-4xl mx-auto font-sans text-sm printable-meter-test border border-gray-200 print:border-none my-8">
       <div className="flex items-center gap-4 border-b-2 border-black pb-4 mb-4">
         <div className="w-24 h-24 bg-blue-500 text-white flex items-center justify-center font-bold text-xl rounded">
-           <svg className="w-16 h-16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M2.05 13.5a11.96 11.96 0 0 1 19.9 0"></path><path d="M7.74 18.26a6 6 0 0 1 8.52 0"></path><circle cx="12" cy="12" r="2"></circle>
-           </svg>
+           <Droplet className="w-16 h-16" strokeWidth={2} />
         </div>
         <div>
           <h1 className="text-xl font-bold">BP Waterworks, Inc.</h1>
@@ -72,8 +73,8 @@ export const PrintableMeterTest = forwardRef<HTMLDivElement, { data: MeterTestDa
             <td className="border border-black p-2">{data.paymentDetails}</td>
           </tr>
           <tr>
-            <td className="border border-black p-2 font-semibold">Meter Brand:</td>
-            <td className="border border-black p-2 text-center">{data.meterBrand}</td>
+            <td className="border border-black p-2 font-semibold">Meter Brand / SN:</td>
+            <td className="border border-black p-2 text-center">{data.meterBrand} {data.meterSerialNumber ? `/ ${data.meterSerialNumber}` : ""}</td>
           </tr>
           <tr>
             <td className="border border-black p-2 font-semibold">Volume of Water:</td>
@@ -82,9 +83,16 @@ export const PrintableMeterTest = forwardRef<HTMLDivElement, { data: MeterTestDa
           <tr>
             <td className="border border-black p-2 font-semibold">Nature of Meter:</td>
             <td className="border border-black p-2 text-center">{data.natureOfMeter}</td>
-            <td className="border border-black p-2 font-semibold align-top h-24" colSpan={2} rowSpan={2}>
+            <td className="border border-black p-2 font-semibold align-top h-24 relative" colSpan={2} rowSpan={2}>
               Witnessed by:
-              <div className="mt-8 text-center italic border-b border-black w-3/4 mx-auto pb-1">{data.witnessedBy}</div>
+              {data.witnessSignatureImg ? (
+                <div className="absolute inset-0 flex flex-col items-center justify-end pb-1 mt-4">
+                  <img src={data.witnessSignatureImg} alt="Signature" className="max-h-[60px]" />
+                  <div className="text-center italic border-b border-black w-3/4 mx-auto leading-none text-xs">{data.witnessedBy}</div>
+                </div>
+              ) : (
+                <div className="mt-8 text-center italic border-b border-black w-3/4 mx-auto pb-1">{data.witnessedBy}</div>
+              )}
             </td>
           </tr>
           <tr>

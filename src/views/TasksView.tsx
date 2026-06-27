@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   AlertTriangle,
   Play,
@@ -15,8 +15,15 @@ import {
   Plus,
   User,
   X,
+  Loader2,
+  Zap,
+  Mic,
+  MicOff,
+  RefreshCw,
+  ShieldAlert,
 } from "lucide-react";
 import { useNetworkInfo } from "../utils/useNetworkInfo";
+import { useProximityAlert } from "../utils/useProximityAlert";
 import { useToast } from "../utils/ToastContext";
 import { db } from "../lib/firebase";
 import {
@@ -31,6 +38,11 @@ import {
 } from "firebase/firestore";
 import { defaultStaff as dataStoreDefaultStaff } from "../lib/dataStore";
 import { ACTIVITY_TYPES } from "../lib/activityTypes";
+import { useAdminRole } from "../hooks/useAdminRole";
+import { haptics } from "../utils/haptics";
+
+import { useSyncQueue } from "../utils/useSyncQueue";
+import { compressImage } from "../utils/imageProcessor";
 
 export type TaskPriority = "high" | "medium" | "low";
 export type TaskStatus = "pending" | "in-progress" | "completed";
@@ -41,6 +53,10 @@ export interface Task {
   priority: TaskPriority;
   location: string;
   deadline: string;
+  estimatedHours?: number;
+  completedAt?: string; // To track efficiency
+  createdAt?: string; // To track TAT
+  tatJustification?: string;
   description: string;
   assignedTo: string;
   status: TaskStatus;
@@ -54,71 +70,121 @@ export interface Task {
 // Sourced from shared lib/activityTypes.ts
 const activityTypes = ACTIVITY_TYPES;
 
-const defaultTasks: Task[] = [
-  {
-    id: "task-1",
-    title: "Emergency Generator Repair",
-    priority: "high",
-    location: "Substation B-12",
-    deadline: "Today, 14:00",
-    description: "Immediate inspection of generator output.",
-    assignedTo: "Unassigned",
-    status: "in-progress",
-  },
-  {
-    id: "task-2",
-    title: "Cooling System Critical Alert",
-    priority: "high",
-    location: "Data Center Rack 04-A",
-    deadline: "Today, 15:30",
-    description:
-      "Sensor detected temperatures exceeding 42°C. Immediate inspection of liquid cooling loop required.",
-    assignedTo: "Jose Marie Alipala Jr",
-    status: "pending",
-  },
-  {
-    id: "task-3",
-    title: "Routine Firewall Update",
-    priority: "medium",
-    location: "Remote Node 09",
-    deadline: "Tomorrow, 22:00",
-    description:
-      "Scheduled maintenance window: 22:00 - 00:00. Requires brief connectivity outage.",
-    assignedTo: "Jose Marie Alipala Jr",
-    status: "pending",
-  },
-  {
-    id: "task-4",
-    title: "Inventory Audit: Spares Rack",
-    priority: "low",
-    location: "Warehouse A",
-    deadline: "Oct 12, 2023",
-    description: "All spare parts accounted for.",
-    assignedTo: "Unassigned",
-    status: "completed",
-  },
-];
+const defaultTasks: Task[] = [];
 
 interface TasksViewProps {
+  setActiveTab?: any;
   currentUser?: string | null;
   currentUid?: string | null;
+  globalSearchQuery?: string;
 }
 
-export function TasksView({ currentUser, currentUid }: TasksViewProps) {
-  const isAdmin =
-    currentUser?.includes("Kevin Vilbar") ||
-    currentUser?.includes("Tech Head") ||
-    currentUser?.includes("Admin");
+export function TasksView({ currentUser, currentUid, setActiveTab, globalSearchQuery = "" }: TasksViewProps) {
+  const isAdmin = useAdminRole(currentUid);
 
   const [openTaskId, setOpenTaskId] = useState<string | null>(null);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [staffList, setStaffList] = useState<string[]>([]);
+  const [searchQuery, setSearchQuery] = useState(globalSearchQuery);
+
+  const { syncData, isSyncing } = useSyncQueue();
+  const [isPulling, setIsPulling] = useState(false);
+  const [pullY, setPullY] = useState(0);
+  
+  const startY = useRef(0);
+  const currentY = useRef(0);
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    if (window.scrollY <= 0) {
+      startY.current = e.touches[0].clientY;
+      currentY.current = e.touches[0].clientY;
+      setIsPulling(true);
+    }
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (!isPulling) return;
+    currentY.current = e.touches[0].clientY;
+    const diff = currentY.current - startY.current;
+    if (diff > 0) {
+      setPullY(Math.min(diff, 80));
+    } else {
+      setPullY(0);
+    }
+  };
+
+  const handleTouchEnd = async () => {
+    if (!isPulling) return;
+    if (pullY > 50) {
+      if (syncData) {
+        haptics.medium();
+        await syncData();
+        showToast("Sync check complete", "success");
+      }
+    }
+    setIsPulling(false);
+    setPullY(0);
+  };
+
+  useEffect(() => {
+    setSearchQuery(globalSearchQuery);
+  }, [globalSearchQuery]);
   const { showToast } = useToast();
   const { isLowDataMode } = useNetworkInfo();
 
+  useProximityAlert(tasks);
+
+  const getHistoricalEstimate = (title: string, location: string): number | null => {
+    const lowercaseTitle = title.toLowerCase();
+    const lowercaseLocation = location.toLowerCase();
+    
+    if (lowercaseTitle.includes("leak repair") || lowercaseTitle.includes("leak")) {
+      if (lowercaseLocation.includes("pr2")) return 2.5;
+      return 3.0;
+    }
+    if (lowercaseTitle.includes("meter replacement") || lowercaseTitle.includes("meter swap") || lowercaseTitle.includes("meter")) {
+      return 1.5;
+    }
+    if (lowercaseTitle.includes("inspection") || lowercaseTitle.includes("inspect")) {
+      return 1.0;
+    }
+    if (lowercaseTitle.includes("chlorination")) {
+      return 4.0;
+    }
+    return null;
+  };
+
+  const handleTaskFieldChange = (field: keyof Task | 'joNumber' | 'accountNumber' | 'accountName' | 'linkedActivity', value: string) => {
+    const updatedTask = { ...newTask, [field]: value };
+    
+    // Auto-predict completion time when title or location changes
+    if (field === 'title' || field === 'location') {
+      const estimate = getHistoricalEstimate(updatedTask.title || "", updatedTask.location || "");
+      if (estimate) {
+        const current = new Date();
+        current.setMinutes(current.getMinutes() + estimate * 60);
+        const tzOffset = current.getTimezoneOffset() * 60000;
+        const localISOTime = new Date(current.getTime() - tzOffset).toISOString().slice(0, 16);
+        updatedTask.deadline = localISOTime;
+        updatedTask.estimatedHours = estimate;
+      } else {
+        // We only overwrite if they haven't explicitly set it, or simply leave it
+      }
+    }
+    
+    setNewTask(updatedTask);
+  };
+
   // Modal state
+  useEffect(() => {
+    const handleOpenNewTask = () => setIsModalOpen(true);
+    window.addEventListener("open-new-task", handleOpenNewTask);
+    return () => window.removeEventListener("open-new-task", handleOpenNewTask);
+  }, []);
+
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<'active' | 'history'>('active');
+  const [localTab, setLocalTab] = useState<'active' | 'history'>('active');
+  const [isSubmittingTask, setIsSubmittingTask] = useState<string | null>(null);
   const [newTask, setNewTask] = useState<Partial<Task>>({
     title: "",
     priority: "medium",
@@ -137,6 +203,10 @@ export function TasksView({ currentUser, currentUid }: TasksViewProps) {
   const [taskParts, setTaskParts] = useState<
     Record<string, { itemId: string; quantity: number }[]>
   >({});
+  const [taskNotes, setTaskNotes] = useState<Record<string, string>>({});
+  const [taskLinkedAsset, setTaskLinkedAsset] = useState<Record<string, string>>({});
+  const [isRecording, setIsRecording] = useState<string | null>(null);
+  const recognitionRef = useRef<any>(null);
   const [inventoryItems, setInventoryItems] = useState<any[]>([]);
 
   useEffect(() => {
@@ -148,7 +218,8 @@ export function TasksView({ currentUser, currentUid }: TasksViewProps) {
         ...doc.data(),
       }));
       setInventoryItems(fetched);
-    }, (error) => {
+    }, (error: any) => {
+      if (error.code === 'permission-denied') return;
       console.error("Inventory listener error:", error);
     });
     return () => unsubscribe();
@@ -190,15 +261,24 @@ export function TasksView({ currentUser, currentUid }: TasksViewProps) {
             priority: data.priority,
             location: data.location,
             deadline: data.deadline,
+            estimatedHours: data.estimatedHours,
+            completedAt: data.completedAt,
+            createdAt: data.createdAt?.toDate?.()?.toISOString() || data.createdAt || new Date().toISOString(),
+            tatJustification: data.tatJustification,
             description: data.description,
             assignedTo: data.assignedTo,
             status: data.status,
             isSynced: true,
+            linkedActivity: data.linkedActivity,
+            joNumber: data.joNumber,
+            accountNumber: data.accountNumber,
+            accountName: data.accountName,
           } as Task;
         });
         setTasks(fetchedTasks);
       }
-    }, (error) => {
+    }, (error: any) => {
+      if (error.code === 'permission-denied') return;
       console.error("Tasks listener error:", error);
     });
 
@@ -243,6 +323,7 @@ export function TasksView({ currentUser, currentUid }: TasksViewProps) {
         priority: newTask.priority,
         location: newTask.location,
         deadline: newTask.deadline || "No deadline",
+        estimatedHours: newTask.estimatedHours || null,
         description: newTask.description || "",
         assignedTo: newTask.assignedTo || "Unassigned",
         status: "pending",
@@ -261,6 +342,7 @@ export function TasksView({ currentUser, currentUid }: TasksViewProps) {
         priority: "medium",
         location: "",
         deadline: "",
+        estimatedHours: undefined,
         description: "",
         assignedTo: "Unassigned",
         status: "pending",
@@ -275,42 +357,24 @@ export function TasksView({ currentUser, currentUid }: TasksViewProps) {
     }
   };
 
-  const handlePhotoUpload = (
+  const handlePhotoUpload = async (
     taskId: string,
     e: React.ChangeEvent<HTMLInputElement>,
   ) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const img = new Image();
-      img.onload = () => {
-        const canvas = document.createElement("canvas");
-        let width = img.width;
-        let height = img.height;
-        const maxDim = 800;
-
-        if (width > height && width > maxDim) {
-          height *= maxDim / width;
-          width = maxDim;
-        } else if (height > maxDim) {
-          width *= maxDim / height;
-          height = maxDim;
-        }
-
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext("2d");
-        ctx?.drawImage(img, 0, 0, width, height);
-
-        // compress to 0.7 quality
-        const dataUrl = canvas.toDataURL("image/jpeg", 0.7);
-        setTaskPhotos((prev) => ({ ...prev, [taskId]: dataUrl }));
+    try {
+      const compressedFile = await compressImage(file, isLowDataMode);
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        setTaskPhotos((prev) => ({ ...prev, [taskId]: event.target?.result as string }));
       };
-      img.src = event.target?.result as string;
-    };
-    reader.readAsDataURL(file);
+      reader.readAsDataURL(compressedFile);
+    } catch (error) {
+      console.error("Error compressing image:", error);
+      showToast("Error processing image", "error");
+    }
   };
 
   const handleAddPart = (taskId: string, itemId: string, quantity: number) => {
@@ -332,67 +396,191 @@ export function TasksView({ currentUser, currentUid }: TasksViewProps) {
     });
   };
 
-  const updateTaskStatus = async (id: string, newStatus: TaskStatus) => {
+  const toggleVoiceRecord = (taskId: string) => {
+    if (isRecording === taskId && recognitionRef.current) {
+      recognitionRef.current.stop();
+      setIsRecording(null);
+      return;
+    }
+
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      showToast("Speech recognition is not supported in this browser.", "error");
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognitionRef.current = recognition;
+    recognition.continuous = true;
+    recognition.interimResults = true;
+
+    recognition.onstart = () => {
+      setIsRecording(taskId);
+      showToast("Listening...", "info");
+    };
+
+    const baseNotes = taskNotes[taskId] ? taskNotes[taskId] + (taskNotes[taskId].endsWith(' ') ? '' : ' ') : "";
+    let localFinal = baseNotes;
+
+    recognition.onresult = (event: any) => {
+      let interim = "";
+      let newFinal = "";
+      for (let i = event.resultIndex; i < event.results.length; ++i) {
+        if (event.results[i].isFinal) {
+          newFinal += event.results[i][0].transcript + " ";
+        } else {
+          interim += event.results[i][0].transcript;
+        }
+      }
+      localFinal += newFinal;
+      setTaskNotes(prev => ({ ...prev, [taskId]: localFinal + interim }));
+    };
+
+    recognition.onerror = (event: any) => {
+      console.error("Speech recognition error", event.error);
+      setIsRecording(null);
+      showToast("Microphone error or permission denied.", "error");
+    };
+
+    recognition.onend = () => {
+      setIsRecording(null);
+    };
+
+    recognition.start();
+  };
+
+  const updateTaskStatus = (id: string, newStatus: TaskStatus) => {
     if (!currentUid) return;
-    try {
-      const taskRef = doc(db, `users/${currentUid}/tasks`, id);
-      const updates: any = {
-        status: newStatus,
-        isSynced: navigator.onLine,
-        updatedAt: serverTimestamp(),
-      };
+    
+    let justification = "";
+    if (newStatus === "completed") {
+      const task = tasks.find((t) => t.id === id);
+      if (task) {
+        const title = (task.title + " " + (task.linkedActivity || "").replace(/_/g, " ")).toLowerCase();
+        
+        if (title.includes("leak repair") && !taskLinkedAsset[id]) {
+          showToast("You must link a specific asset (from inventory) to complete a Leak Repair task.", "error");
+          return;
+        }
 
-      if (newStatus === "completed") {
-        if (taskPhotos[id]) updates.photoUrl = taskPhotos[id];
-        if (taskParts[id] && taskParts[id].length > 0) {
-          updates.consumedParts = taskParts[id];
+        if (task.createdAt) {
+          const createdDate = new Date(task.createdAt);
+          const now = new Date();
+          const diffMs = now.getTime() - createdDate.getTime();
+          const diffHours = diffMs / (1000 * 60 * 60);
+          const diffDays = diffHours / 24;
 
-          // Deduct from inventory
-          for (const part of taskParts[id]) {
-            const matchedItem = inventoryItems.find(
-              (i) => i.id === part.itemId,
-            );
-            if (matchedItem) {
-              const invRef = doc(
-                db,
-                `users/${currentUid}/inventory`,
-                matchedItem.id,
-              );
-              await updateDoc(invRef, {
-                currentStock: Math.max(
-                  0,
-                  matchedItem.currentStock - part.quantity,
-                ),
-                updatedAt: serverTimestamp(),
-              });
+          let needsJustification = false;
+          let limitStr = "";
+          
+          if (title.includes("meter test") && diffDays > 7) {
+            needsJustification = true;
+            limitStr = "7 days";
+          } else if (title.includes("new meter connection") && diffDays > 3) {
+            needsJustification = true;
+            limitStr = "3 days";
+          } else if (title.includes("leak repair") && diffHours > 24) {
+            needsJustification = true;
+            limitStr = "24 hours";
+          } else if (title.includes("meter replacement") && diffDays > 3) {
+            needsJustification = true;
+            limitStr = "3 days";
+          }
+
+          if (needsJustification) {
+            justification = prompt(`Turn Around Time (TAT) exceeded! The limit for this task is ${limitStr}. Please provide a justification for the delay:`) || "";
+            if (!justification.trim()) {
+               showToast("Justification is required for overdue TAT.", "error");
+               return;
             }
           }
         }
       }
-
-      await updateDoc(taskRef, updates);
-
-      if (newStatus === "completed") {
-        showToast(
-          !navigator.onLine
-            ? "Offline: Task completed. Saved in Sync Queue."
-            : "Task completed and synced successfully!",
-          "success",
-        );
-      }
-    } catch (err) {
-      console.error(err);
-      showToast("Error updating task status", "error");
+      setIsSubmittingTask(id);
     }
+
+    (async () => {
+      try {
+        const taskRef = doc(db, `users/${currentUid}/tasks`, id);
+        const updates: any = {
+          status: newStatus,
+          isSynced: navigator.onLine,
+          updatedAt: serverTimestamp(),
+        };
+
+        if (newStatus === "completed") {
+          updates.completedAt = new Date().toISOString();
+          if (justification) updates.tatJustification = justification;
+          if (taskPhotos[id]) updates.photoUrl = taskPhotos[id];
+          if (taskNotes[id]) updates.notes = taskNotes[id];
+          if (taskLinkedAsset[id]) updates.linkedAssetId = taskLinkedAsset[id];
+          if (taskParts[id] && taskParts[id].length > 0) {
+            updates.consumedParts = taskParts[id];
+
+            // Deduct from inventory
+            for (const part of taskParts[id]) {
+              const matchedItem = inventoryItems.find(
+                (i) => i.id === part.itemId,
+              );
+              if (matchedItem) {
+                const invRef = doc(
+                  db,
+                  `users/${currentUid}/inventory`,
+                  matchedItem.id,
+                );
+                updateDoc(invRef, {
+                  currentStock: Math.max(
+                    0,
+                    matchedItem.currentStock - part.quantity,
+                  ),
+                  updatedAt: serverTimestamp(),
+                }).catch(console.warn);
+              }
+            }
+          }
+        }
+
+        updateDoc(taskRef, updates).catch(console.warn);
+
+        if (newStatus === "completed") {
+          if (navigator.vibrate) {
+            navigator.vibrate([100, 50, 100]);
+          }
+          showToast(
+            !navigator.onLine
+              ? "Offline: Task completed. Saved in Sync Queue."
+              : "Task completed and synced successfully!",
+            "success",
+          );
+        }
+      } catch (err) {
+        console.error(err);
+        showToast("Error updating task status", "error");
+      } finally {
+        if (newStatus === "completed") setIsSubmittingTask(null);
+      }
+    })();
   };
 
-  const filteredTasks = tasks.filter((t) => 
-    activeTab === 'active' ? t.status !== 'completed' : t.status === 'completed'
-  );
+  const [visibleCount, setVisibleCount] = useState(20);
+
+  const filteredTasks = tasks.filter((t) => {
+    const statusMatch = localTab === 'active' ? t.status !== 'completed' : t.status === 'completed';
+    const searchMatch = !searchQuery || 
+        t.title.toLowerCase().includes(searchQuery.toLowerCase()) || 
+        t.id.toLowerCase().includes(searchQuery.toLowerCase()) || 
+        t.assignedTo.toLowerCase().includes(searchQuery.toLowerCase()) || 
+        t.location.toLowerCase().includes(searchQuery.toLowerCase());
+    return statusMatch && searchMatch;
+  });
   
   const highTasks = filteredTasks.filter((t) => t.priority === "high");
   const mediumTasks = filteredTasks.filter((t) => t.priority === "medium");
   const lowTasks = filteredTasks.filter((t) => t.priority === "low");
+
+  const paginatedHigh = highTasks.slice(0, visibleCount);
+  const paginatedMedium = mediumTasks.slice(0, Math.max(0, visibleCount - highTasks.length));
+  const paginatedLow = lowTasks.slice(0, Math.max(0, visibleCount - highTasks.length - mediumTasks.length));
 
   const renderTask = (task: Task) => {
     const priorityColorClass =
@@ -443,7 +631,7 @@ export function TasksView({ currentUser, currentUid }: TasksViewProps) {
                   <div className="flex items-center gap-1 text-primary">
                     <User className="w-4 h-4" />
                     <span className="text-body-md font-semibold">
-                      {task.assignedTo}
+                      {task.assignedTo.split(", ").map(a => a.split(" - ")[0]).join(", ")}
                     </span>
                   </div>
                 )}
@@ -490,12 +678,38 @@ export function TasksView({ currentUser, currentUid }: TasksViewProps) {
 
               {task.status !== "completed" && (
                 <>
-                  <label className="font-label-md text-on-surface-variant block mb-2">
-                    Accomplishment Report
+                  <label className="font-label-md text-on-surface-variant flex items-center justify-between mb-2">
+                    <span>Accomplishment Report</span>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleVoiceRecord(task.id);
+                      }}
+                      className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold transition-colors shadow-sm ${
+                        isRecording === task.id
+                          ? "bg-error text-white animate-pulse"
+                          : "bg-surface-variant hover:bg-outline-variant/30 text-on-surface-variant"
+                      }`}
+                    >
+                      {isRecording === task.id ? (
+                        <>
+                          <MicOff className="w-3.5 h-3.5" />
+                          Stop Recording
+                        </>
+                      ) : (
+                        <>
+                          <Mic className="w-3.5 h-3.5" />
+                          Record Voice Note
+                        </>
+                      )}
+                    </button>
                   </label>
                   <textarea
                     className="w-full bg-surface-container border border-outline-variant rounded-lg p-3 text-body-md focus:ring-2 focus:ring-primary focus:outline-none min-h-[120px]"
-                    placeholder="Enter detailed technical notes here..."
+                    placeholder="Enter detailed technical notes or use voice recording..."
+                    value={taskNotes[task.id] || ""}
+                    onChange={(e) => setTaskNotes(prev => ({ ...prev, [task.id]: e.target.value }))}
+                    onClick={(e) => e.stopPropagation()}
                   ></textarea>
                 </>
               )}
@@ -607,8 +821,10 @@ export function TasksView({ currentUser, currentUid }: TasksViewProps) {
                                 prompt("Enter quantity used:", "1") || "0",
                                 10,
                               );
-                              if (qty > 0)
+                              if (qty > 0) {
+                                haptics.tap();
                                 handleAddPart(task.id, sel.value, qty);
+                              }
                               sel.value = "";
                             }
                           }}
@@ -618,16 +834,46 @@ export function TasksView({ currentUser, currentUid }: TasksViewProps) {
                         </button>
                       </div>
                     </div>
+                    
+                    {/* Task-to-Asset Digital Twin Linkage */}
+                    {((task.title + " " + (task.linkedActivity || "").replace(/_/g, " ")).toLowerCase().includes("leak repair")) && (
+                      <div className="space-y-2 mt-4 pt-4 border-t border-outline-variant">
+                        <label className="font-label-md text-on-surface-variant flex items-center gap-2">
+                          <ShieldAlert className="w-4 h-4 text-warning-dark" />
+                          Link to Physical Asset (Required)
+                        </label>
+                        <p className="text-xs text-on-surface-variant mb-2">Leak Repairs must be linked to a specific asset to maintain the service history twin.</p>
+                        <select
+                          className="form-input w-full py-2 text-sm"
+                          value={taskLinkedAsset[task.id] || ""}
+                          onChange={(e) => {
+                            e.stopPropagation();
+                            setTaskLinkedAsset(prev => ({...prev, [task.id]: e.target.value}));
+                          }}
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <option value="">-- Select Asset --</option>
+                          {inventoryItems.map((item) => (
+                            <option key={item.id} value={item.id}>
+                              {item.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
                   </div>
 
                   <div className="flex justify-end items-center mt-4 pt-4 border-t border-outline-variant">
                     <button
+                      disabled={isSubmittingTask === task.id}
                       onClick={(e) => {
                         e.stopPropagation();
+                        haptics.success();
                         updateTaskStatus(task.id, "completed");
                       }}
-                      className="bg-primary text-on-primary px-6 py-2 rounded-lg font-label-md hover:bg-primary-container transition-all active:scale-95"
+                      className="btn-primary"
                     >
+                      {isSubmittingTask === task.id ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
                       Submit Report
                     </button>
                   </div>
@@ -642,6 +888,32 @@ export function TasksView({ currentUser, currentUid }: TasksViewProps) {
                   <p className="text-body-md text-on-surface">
                     Marked as completed.
                   </p>
+                  
+                  {(task.createdAt || task.completedAt) && (
+                    <div className="mt-4 pt-4 border-t border-outline-variant text-sm">
+                      <p className="text-on-surface-variant">
+                        <span className="font-semibold text-on-surface">Created:</span> {task.createdAt ? new Date(task.createdAt).toLocaleString() : 'Unknown'}
+                      </p>
+                      <p className="text-on-surface-variant mt-1">
+                        <span className="font-semibold text-on-surface">Completed:</span> {task.completedAt ? new Date(task.completedAt).toLocaleString() : 'Unknown'}
+                      </p>
+                      {task.createdAt && task.completedAt && (
+                        <p className="text-on-surface-variant mt-1">
+                          <span className="font-semibold text-on-surface">Turn Around Time:</span> {
+                            ((new Date(task.completedAt).getTime() - new Date(task.createdAt).getTime()) / (1000 * 60 * 60)).toFixed(1)
+                          } hours
+                        </p>
+                      )}
+                    </div>
+                  )}
+
+                  {task.tatJustification && (
+                    <div className="mt-4 bg-error-container/20 p-3 rounded-md border border-error/20">
+                      <p className="text-sm font-semibold text-error mb-1">Overdue Justification</p>
+                      <p className="text-sm text-on-surface italic">"{task.tatJustification}"</p>
+                    </div>
+                  )}
+
                   <div className="flex items-center gap-2 mt-4 text-primary font-semibold">
                     <CheckCircle2 className="w-5 h-5" />
                     Done
@@ -656,7 +928,24 @@ export function TasksView({ currentUser, currentUid }: TasksViewProps) {
   };
 
   return (
-    <div className="max-w-5xl mx-auto px-margin-mobile pt-lg md:pt-xl mb-24">
+    <div 
+      className="max-w-5xl mx-auto px-margin-mobile pt-lg md:pt-xl mb-24 relative"
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
+    >
+      {/* Pull to Refresh Indicator */}
+      {(pullY > 0 || isSyncing) && (
+        <div 
+          className="absolute top-0 left-0 right-0 flex justify-center items-center overflow-hidden z-50 transition-all duration-200"
+          style={{ height: `${isSyncing ? 60 : pullY}px` }}
+        >
+          <div className={`p-2 rounded-full bg-surface shadow-md ${isSyncing ? 'animate-spin' : ''} border border-outline-variant`}>
+            <RefreshCw className={`w-5 h-5 text-primary ${isSyncing ? '' : 'transition-transform'}`} style={{ transform: `rotate(${pullY * 2}deg)` }} />
+          </div>
+        </div>
+      )}
+
       {/* Header Section */}
       <section className="mb-lg flex flex-col md:flex-row md:items-end md:justify-between gap-md">
         <div>
@@ -670,7 +959,10 @@ export function TasksView({ currentUser, currentUid }: TasksViewProps) {
         <div className="flex gap-2">
           {isAdmin && (
             <button
-              onClick={() => setIsModalOpen(true)}
+              onClick={() => {
+                haptics.tap();
+                setIsModalOpen(true);
+              }}
               className="btn-primary px-4 py-1.5 text-sm"
             >
               <Plus className="w-4 h-4 mr-2" />
@@ -679,14 +971,14 @@ export function TasksView({ currentUser, currentUid }: TasksViewProps) {
           )}
           <div className="flex bg-surface-container rounded-lg p-1">
             <button 
-              onClick={() => setActiveTab('active')}
-              className={`px-4 py-1.5 rounded-md text-label-md font-label-md transition-colors ${activeTab === 'active' ? 'bg-primary-container text-on-primary-container' : 'text-on-surface-variant hover:bg-surface-container-high'}`}
+              onClick={() => setLocalTab('active')}
+              className={`px-4 py-1.5 rounded-md text-label-md font-label-md transition-colors ${localTab === 'active' ? 'bg-primary-container text-on-primary-container' : 'text-on-surface-variant hover:bg-surface-container-high'}`}
             >
               Active
             </button>
             <button 
-              onClick={() => setActiveTab('history')}
-              className={`px-4 py-1.5 rounded-md text-label-md font-label-md transition-colors ${activeTab === 'history' ? 'bg-primary-container text-on-primary-container' : 'text-on-surface-variant hover:bg-surface-container-high'}`}
+              onClick={() => setLocalTab('history')}
+              className={`px-4 py-1.5 rounded-md text-label-md font-label-md transition-colors ${localTab === 'history' ? 'bg-primary-container text-on-primary-container' : 'text-on-surface-variant hover:bg-surface-container-high'}`}
             >
               History
             </button>
@@ -726,7 +1018,7 @@ export function TasksView({ currentUser, currentUid }: TasksViewProps) {
               HIGH PRIORITY ({highTasks.length})
             </h3>
             <div className="grid grid-cols-1 gap-md">
-              {highTasks.map(renderTask)}
+              {paginatedHigh.map(renderTask)}
             </div>
           </div>
         )}
@@ -742,7 +1034,7 @@ export function TasksView({ currentUser, currentUid }: TasksViewProps) {
               MEDIUM PRIORITY ({mediumTasks.length})
             </h3>
             <div className="grid grid-cols-1 gap-md">
-              {mediumTasks.map(renderTask)}
+              {paginatedMedium.map(renderTask)}
             </div>
           </div>
         )}
@@ -755,7 +1047,7 @@ export function TasksView({ currentUser, currentUid }: TasksViewProps) {
               LOW PRIORITY ({lowTasks.length})
             </h3>
             <div className="grid grid-cols-1 gap-md">
-              {lowTasks.map(renderTask)}
+              {paginatedLow.map(renderTask)}
             </div>
           </div>
         )}
@@ -766,19 +1058,36 @@ export function TasksView({ currentUser, currentUid }: TasksViewProps) {
               <CheckCircle2 className="w-8 h-8 text-primary" />
             </div>
             <h3 className="text-xl font-semibold text-on-surface mb-2">
-              {activeTab === 'active' ? 'Zero Pending Tasks' : 'No Task History'}
+              {localTab === 'active' ? 'Zero Pending Tasks' : 'No Task History'}
             </h3>
             <p className="text-on-surface-variant max-w-[384px] mb-6">
-              {activeTab === 'active' ? "You're all caught up! There are no operational tasks currently assigned to you or your area." : "No completed tasks yet."}
+              {localTab === 'active' ? "You're all caught up! There are no operational tasks currently assigned to you or your area." : "No completed tasks yet."}
             </p>
-            {isAdmin && activeTab === 'active' && (
+            {isAdmin && localTab === 'active' && (
               <button
-                onClick={() => setIsModalOpen(true)}
+                onClick={() => {
+                  haptics.tap();
+                  setIsModalOpen(true);
+                }}
                 className="btn-primary py-2 px-6"
               >
                 Create New Task
               </button>
             )}
+          </div>
+        )}
+
+        {filteredTasks.length > visibleCount && (
+          <div className="text-center pt-4">
+            <button 
+              onClick={() => {
+                haptics.tap();
+                setVisibleCount(v => v + 20);
+              }}
+              className="px-6 py-2 bg-surface-container-high hover:bg-surface-container-highest text-on-surface rounded-full transition-colors text-sm font-semibold"
+            >
+              Load More
+            </button>
           </div>
         )}
       </div>
@@ -925,7 +1234,7 @@ export function TasksView({ currentUser, currentUid }: TasksViewProps) {
                   type="text"
                   value={newTask.title}
                   onChange={(e) =>
-                    setNewTask({ ...newTask, title: e.target.value })
+                    handleTaskFieldChange("title", e.target.value)
                   }
                   className="form-input"
                   placeholder="e.g. Inspect Generator 2"
@@ -955,23 +1264,52 @@ export function TasksView({ currentUser, currentUid }: TasksViewProps) {
                 </div>
 
                 <div className="form-group flex flex-col gap-1.5">
-                  <label className="text-label-md font-semibold text-on-surface">
-                    Assign To
+                  <label className="text-label-md font-semibold text-on-surface flex justify-between items-center">
+                    <span>Assign To (Multiple allowed)</span>
+                    {newTask.assignedTo && newTask.assignedTo !== "Unassigned" && (
+                      <span className="text-xs font-normal text-primary">
+                        {newTask.assignedTo.split(", ").length} selected
+                      </span>
+                    )}
                   </label>
-                  <select
-                    value={newTask.assignedTo}
-                    onChange={(e) =>
-                      setNewTask({ ...newTask, assignedTo: e.target.value })
-                    }
-                    className="form-input bg-white appearance-none"
-                  >
-                    <option value="Unassigned">Unassigned</option>
-                    {staffList.map((staff) => (
-                      <option key={staff} value={staff}>
-                        {staff}
-                      </option>
-                    ))}
-                  </select>
+                  <div className="flex flex-col gap-2 max-h-40 overflow-y-auto border border-outline-variant rounded-lg p-3 bg-white">
+                    <label className="flex items-center gap-3 text-sm cursor-pointer hover:bg-surface-variant p-1 -mx-1 rounded transition-colors">
+                      <input 
+                        type="checkbox" 
+                        checked={!newTask.assignedTo || newTask.assignedTo === "Unassigned"}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setNewTask({ ...newTask, assignedTo: "Unassigned" });
+                          }
+                        }}
+                        className="rounded border-outline-variant text-primary focus:ring-primary w-4 h-4"
+                      />
+                      <span className={(!newTask.assignedTo || newTask.assignedTo === "Unassigned") ? "font-medium" : ""}>Unassigned</span>
+                    </label>
+                    {staffList.map((staff) => {
+                      const currentAssignees = newTask.assignedTo && newTask.assignedTo !== "Unassigned" ? newTask.assignedTo.split(", ") : [];
+                      const isChecked = currentAssignees.includes(staff);
+                      return (
+                        <label key={staff} className="flex items-center gap-3 text-sm cursor-pointer hover:bg-surface-variant p-1 -mx-1 rounded transition-colors">
+                          <input 
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={(e) => {
+                              let nextAssignees = [...currentAssignees];
+                              if (e.target.checked) {
+                                nextAssignees.push(staff);
+                              } else {
+                                nextAssignees = nextAssignees.filter(s => s !== staff);
+                              }
+                              setNewTask({ ...newTask, assignedTo: nextAssignees.length ? nextAssignees.join(', ') : 'Unassigned' });
+                            }}
+                            className="rounded border-outline-variant text-primary focus:ring-primary w-4 h-4"
+                          />
+                          <span className={isChecked ? "font-medium" : ""}>{staff.split(" - ")[0]}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
                 </div>
               </div>
 
@@ -984,7 +1322,7 @@ export function TasksView({ currentUser, currentUid }: TasksViewProps) {
                     type="text"
                     value={newTask.location}
                     onChange={(e) =>
-                      setNewTask({ ...newTask, location: e.target.value })
+                      handleTaskFieldChange("location", e.target.value)
                     }
                     className="form-input"
                     placeholder="e.g. Filter Area A"
@@ -1004,6 +1342,12 @@ export function TasksView({ currentUser, currentUid }: TasksViewProps) {
                     }
                     className="form-input bg-white"
                   />
+                  {newTask.estimatedHours && (
+                    <div className="text-xs text-primary font-medium flex items-center gap-1 mt-1">
+                      <Zap className="w-3 h-3" />
+                      Auto-suggested based on historical avg. ({newTask.estimatedHours} hours)
+                    </div>
+                  )}
                 </div>
               </div>
 

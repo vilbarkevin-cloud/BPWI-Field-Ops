@@ -9,12 +9,18 @@ import {
   MapPin,
   Clock,
   Check,
+  Loader2,
+  Pencil,
+  Trash2,
+  X,
 } from "lucide-react";
 import { defaultStaff } from "../lib/dataStore";
 import { db } from "../lib/firebase";
-import { collection, doc, setDoc, serverTimestamp } from "firebase/firestore";
+import { useAdminRole } from "../hooks/useAdminRole";
+import { collection, doc, setDoc, serverTimestamp, query, onSnapshot, getDocs, writeBatch } from "firebase/firestore";
 
 interface AttendanceViewProps {
+  setActiveTab?: any;
   currentUser: string | null;
   currentUid?: string | null;
 }
@@ -158,13 +164,21 @@ export function AttendanceView({
   currentUser,
   currentUid,
 }: AttendanceViewProps) {
-  const isAdmin =
-    currentUser?.includes("Kevin Vilbar") || currentUser?.includes("Tech Head");
+  const isAdmin = useAdminRole(currentUid);
   const [customStaff, setCustomStaff] = useState<string[]>([]);
+  const [allStaff, setAllStaff] = useState<{id: string, name: string, showInMatrix: boolean}[]>([]);
+  const [showMatrixUsersModal, setShowMatrixUsersModal] = useState(false);
   const [schedule, setSchedule] = useState<ScheduleData>({});
   const [dates, setDates] = useState<any[]>([]);
   const [paintShift, setPaintShift] = useState<string | null>(null);
   const [palette, setPalette] = useState<Record<string, ShiftDefinition>>({});
+
+  const [startDate, setStartDate] = useState(() => {
+    const d = new Date();
+    const offset = d.getTimezoneOffset() * 60000;
+    return new Date(d.getTime() - offset).toISOString().split('T')[0];
+  });
+  const [daysToShow, setDaysToShow] = useState(7);
 
   // Palette Editing State
   const [showShiftModal, setShowShiftModal] = useState(false);
@@ -236,20 +250,26 @@ export function AttendanceView({
   };
 
   useEffect(() => {
-    // Generate next 7 days
-    const generatedDates = Array.from({ length: 7 }).map((_, i) => {
-      const d = new Date();
+    // Generate dates based on selection
+    const generatedDates = Array.from({ length: daysToShow }).map((_, i) => {
+      const d = new Date(startDate + "T00:00:00");
       d.setDate(d.getDate() + i);
+      
+      const offset = d.getTimezoneOffset() * 60000;
+      const iso = new Date(d.getTime() - offset).toISOString().split('T')[0];
+      
       return {
         date: d,
-        iso: d.toISOString().split("T")[0],
+        iso: iso,
         dayName: d.toLocaleDateString("en-US", { weekday: "short" }),
         dayNum: d.getDate(),
         isWeekend: d.getDay() === 0 || d.getDay() === 6,
       };
     });
     setDates(generatedDates);
+  }, [startDate, daysToShow]);
 
+  useEffect(() => {
     const storedPalette = localStorage.getItem("watsanShiftPalette");
     if (storedPalette) {
       setPalette(JSON.parse(storedPalette));
@@ -261,17 +281,32 @@ export function AttendanceView({
       );
     }
 
-    const storedStaff = localStorage.getItem("watsanStaff");
-    let staff: string[] = [];
-    if (storedStaff) {
-      const parsed = JSON.parse(storedStaff);
-      staff = parsed.filter(
-        (s: string) => !s.includes("Kevin Vilbar") && s !== "Darwil Fernandez",
-      );
-      setCustomStaff(staff);
+    let initialStaff: string[] = [];
+    if (currentUid) {
+      const q = query(collection(db, `users/${currentUid}/staff`));
+      const unsub = onSnapshot(q, (snapshot) => {
+        const staffDocs = snapshot.docs.map((d) => ({
+          id: d.id,
+          name: d.data().name as string,
+          showInMatrix: d.data().showInMatrix !== false, // default true
+        }));
+        staffDocs.sort((a, b) => a.name.localeCompare(b.name));
+        
+        setAllStaff(staffDocs);
+        setCustomStaff(staffDocs.filter(s => s.showInMatrix).map(s => s.name));
+      }, (error: any) => {
+        if (error.code === 'permission-denied') return;
+        console.error(error);
+      });
     } else {
-      staff = defaultStaff;
-      setCustomStaff(defaultStaff);
+      const storedStaff = localStorage.getItem("watsanStaff");
+      if (storedStaff) {
+        initialStaff = JSON.parse(storedStaff);
+      } else {
+        initialStaff = defaultStaff;
+      }
+      setCustomStaff(initialStaff);
+      setAllStaff(initialStaff.map(name => ({ id: name.replace(/\s+/g, "_").toLowerCase(), name, showInMatrix: true })));
     }
 
     const storedSchedule = localStorage.getItem("watsanWeeklySchedule");
@@ -364,7 +399,7 @@ export function AttendanceView({
         ],
       };
 
-      staff.forEach((s) => {
+      initialStaff.forEach((s) => {
         initial[s] = {};
         const pat = hardcodedPat[s] || [
           "P_GREEN",
@@ -375,8 +410,13 @@ export function AttendanceView({
           "OFF",
           "OFF",
         ];
-        generatedDates.forEach((d, idx) => {
-          initial[s][d.iso] = pat[idx] || "";
+        const today = new Date();
+        Array.from({ length: 7 }).forEach((_, i) => {
+          const d = new Date(today);
+          d.setDate(today.getDate() - today.getDay() + 1 + i);
+          const offset = d.getTimezoneOffset() * 60000;
+          const iso = new Date(d.getTime() - offset).toISOString().split('T')[0];
+          initial[s][iso] = pat[i] || "";
         });
       });
       setSchedule(initial);
@@ -539,16 +579,30 @@ export function AttendanceView({
     setShowShiftModal(true);
   };
 
+  const toggleUserMatrixVisibility = async (staffId: string, currentStatus: boolean) => {
+    if (!currentUid) return;
+    try {
+      await setDoc(
+        doc(db, `users/${currentUid}/staff`, staffId),
+        { showInMatrix: !currentStatus },
+        { merge: true }
+      );
+    } catch(err) {
+      console.error(err);
+      alert('Failed to update visibility');
+    }
+  };
+
   return (
     <div className="p-4 md:p-6 max-w-7xl mx-auto pb-28 animate-in fade-in duration-300">
       {/* Field Staff Location Clock In Panel */}
       {!isAdmin && (
         <div className="border border-outline-variant bg-surface rounded-2xl p-5 shadow-sm mb-6 flex flex-col md:flex-row gap-4 items-center justify-between">
           <div>
-            <h3 className="text-lg font-semibold text-on-surface flex items-center gap-2">
-              <MapPin className="text-primary w-5 h-5" /> Live GPS Tracking
+            <h3 className="text-base font-semibold text-on-surface flex items-center gap-2">
+              <MapPin className="text-primary w-4 h-4" /> Live GPS Tracking
             </h3>
-            <p className="text-sm text-on-surface-variant mt-1 max-w-[448px]">
+            <p className="text-xs text-on-surface-variant mt-1 max-w-[448px]">
               Location is strictly required to log attendance. The device's GPS
               hardware captures coordinates accurately.
             </p>
@@ -570,29 +624,11 @@ export function AttendanceView({
             {clockInState === "locating" && (
               <button
                 disabled
-                className="btn-primary opacity-70 flex items-center gap-2 min-w-[200px] justify-center cursor-wait"
-              >
-                <svg
-                  className="animate-spin h-5 w-5 text-white"
-                  viewBox="0 0 24 24"
-                >
-                  <circle
-                    className="opacity-25"
-                    cx="12"
-                    cy="12"
-                    r="10"
-                    stroke="currentColor"
-                    strokeWidth="4"
-                    fill="none"
-                  ></circle>
-                  <path
-                    className="opacity-75"
-                    fill="currentColor"
-                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                  ></path>
-                </svg>
-                Locating...
-              </button>
+                 className="btn-primary opacity-70 flex items-center gap-2 min-w-[200px] justify-center cursor-wait"
+               >
+                 <Loader2 className="animate-spin h-5 w-5 text-white" />
+                 Locating...
+               </button>
             )}
             {clockInState === "clocked" && (
               <div className="bg-success/10 text-success border border-success/30 px-6 py-2.5 rounded-lg flex items-center gap-2 font-semibold min-w-[200px] justify-center">
@@ -689,19 +725,7 @@ export function AttendanceView({
                         className="w-10 flex items-center justify-center hover:bg-surface-variant/40 hover:border-outline-variant text-on-surface-variant transition-colors"
                         title="Edit shift"
                       >
-                        <svg
-                          width="14"
-                          height="14"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        >
-                          <path d="M12 20h9" />
-                          <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
-                        </svg>
+                        <Pencil className="w-3.5 h-3.5" />
                       </button>
                       <button
                         onClick={(e) => {
@@ -711,19 +735,7 @@ export function AttendanceView({
                         className="w-10 flex items-center justify-center hover:bg-error/10 text-on-surface-variant hover:text-error transition-colors"
                         title="Delete shift"
                       >
-                        <svg
-                          width="14"
-                          height="14"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        >
-                          <polyline points="3 6 5 6 21 6" />
-                          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                        </svg>
+                        <Trash2 className="w-3.5 h-3.5" />
                       </button>
                     </div>
                   )}
@@ -734,11 +746,41 @@ export function AttendanceView({
       </div>
 
       <div className="bg-surface border border-outline-variant shadow-sm rounded-2xl overflow-hidden flex flex-col">
-        <div className="p-4 md:p-5 border-b border-outline-variant flex justify-between items-center bg-surface-container-lowest gap-4 shrink-0">
-          <div>
-            <h3 className="font-headline-sm font-semibold text-on-surface flex items-center gap-2 mb-1">
+        <div className="p-4 md:p-5 border-b border-outline-variant flex flex-col md:flex-row justify-between items-start md:items-center bg-surface-container-lowest gap-4 shrink-0">
+          <div className="flex flex-col sm:flex-row items-center gap-4">
+            <h3 className="font-headline-sm font-semibold text-on-surface flex items-center gap-2">
               <CalendarDays className="w-5 h-5 text-primary" /> Matrix View
             </h3>
+            
+            <div className="flex items-center gap-3 bg-surface border border-outline-variant rounded-lg p-1.5 shadow-sm">
+              <input
+                type="date"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                className="text-sm border-none bg-transparent focus:ring-0 text-on-surface cursor-pointer outline-none pl-2"
+              />
+              <div className="h-4 w-px bg-outline-variant/50"></div>
+              <select
+                value={daysToShow}
+                onChange={(e) => setDaysToShow(Number(e.target.value))}
+                className="text-sm border-none bg-transparent focus:ring-0 text-on-surface cursor-pointer outline-none pr-1 focus:outline-none"
+              >
+                <option value={7}>7 Days</option>
+                <option value={14}>14 Days</option>
+                <option value={21}>21 Days</option>
+                <option value={30}>30 Days</option>
+              </select>
+            </div>
+            {isAdmin && (
+              <button
+                onClick={() => setShowMatrixUsersModal(true)}
+                className="btn btn-outline text-xs px-3 py-1.5 h-auto flex items-center gap-1.5"
+                title="Manage displayed users"
+              >
+                <Users className="w-3.5 h-3.5" />
+                <span>Users</span>
+              </button>
+            )}
           </div>
           {!isAdmin && (
             <div className="text-label-sm text-primary bg-primary-container px-4 py-1.5 rounded-full font-semibold w-fit">
@@ -786,7 +828,7 @@ export function AttendanceView({
                     key={staff}
                     className="hover:bg-surface-container-lowest transition-colors group"
                   >
-                    <td className="border-r border-outline-variant py-2 px-4 shadow-[1px_0_0_0_#e5e7eb] sticky left-0 z-10 bg-white group-hover:bg-surface-container-lowest">
+                    <td className="border-r border-outline-variant py-1 px-3 shadow-[1px_0_0_0_#e5e7eb] sticky left-0 z-10 bg-white group-hover:bg-surface-container-lowest">
                       <div className="font-medium text-on-surface text-label-md truncate">
                         {staff.split(" - ")[0]}
                       </div>
@@ -805,10 +847,10 @@ export function AttendanceView({
                             shift.name ? `${shift.name}\n${shift.time}` : ""
                           }
                         >
-                          <div className="w-full h-[40px] flex items-center justify-center relative p-1">
+                          <div className="w-full h-[28px] flex items-center justify-center relative p-[2px]">
                             {shiftCode !== "" && shiftCode !== "ERASE" && (
                               <div
-                                className={`w-full h-full rounded shadow-sm flex items-center justify-center font-bold text-xs ${shift.color} border border-black/5`}
+                                className={`w-full h-full rounded shadow-sm flex items-center justify-center font-bold text-[10px] ${shift.color} border border-black/5`}
                               >
                                 {shift.label}
                               </div>
@@ -826,7 +868,7 @@ export function AttendanceView({
                               shiftCode === "" &&
                               palette[paintShift] && (
                                 <div
-                                  className={`absolute inset-1 rounded opacity-0 group-hover:opacity-40 flex items-center justify-center font-bold text-xs ${palette[paintShift].color} pointer-events-none`}
+                                  className={`absolute inset-[2px] rounded opacity-0 group-hover:opacity-40 flex items-center justify-center font-bold text-[10px] ${palette[paintShift].color} pointer-events-none`}
                                 >
                                   {palette[paintShift].label}
                                 </div>
@@ -835,8 +877,8 @@ export function AttendanceView({
                         </td>
                       );
                     })}
-                    <td className="py-2 px-3 text-center bg-white group-hover:bg-surface-container-lowest">
-                      <div className="flex justify-center flex-col items-center gap-1 min-h-[40px]">
+                    <td className="py-1 px-3 text-center bg-white group-hover:bg-surface-container-lowest">
+                      <div className="flex justify-center flex-col items-center gap-1 min-h-[28px]">
                         {conflicts.size > 0 && (
                           <div className="text-error bg-error/10 p-1 rounded group/tt relative cursor-help">
                             <AlertTriangle className="w-4 h-4" />
@@ -884,16 +926,7 @@ export function AttendanceView({
                 onClick={() => setShowShiftModal(false)}
                 className="p-2 hover:bg-surface-variant rounded-full text-on-surface-variant"
               >
-                <svg
-                  width="20"
-                  height="20"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                >
-                  <path d="M18 6L6 18M6 6l12 12" />
-                </svg>
+                <X className="w-5 h-5" />
               </button>
             </div>
 
@@ -988,18 +1021,7 @@ export function AttendanceView({
                       title={preset.label}
                     >
                       {shiftForm.color === preset.value && (
-                        <svg
-                          width="16"
-                          height="16"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="3"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        >
-                          <polyline points="20 6 9 17 4 12"></polyline>
-                        </svg>
+                        <Check className="w-5 h-5 text-on-surface" />
                       )}
                     </button>
                   ))}
@@ -1074,6 +1096,58 @@ export function AttendanceView({
                 </div>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Manage Matrix Users Modal */}
+      {showMatrixUsersModal && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+          <div className="bg-surface rounded-2xl shadow-xl w-full min-w-[300px] sm:min-w-[400px] max-w-md overflow-hidden flex flex-col max-h-[80vh]">
+            <div className="flex items-center justify-between p-4 border-b border-outline-variant shrink-0 bg-surface-container-lowest">
+              <h3 className="font-display text-title-lg font-bold">Manage Users</h3>
+              <button
+                onClick={() => setShowMatrixUsersModal(false)}
+                className="p-2 hover:bg-surface-variant rounded-full text-on-surface-variant transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            <div className="p-4 overflow-y-auto flex-1 flex flex-col gap-2">
+              <p className="text-sm text-on-surface-variant mb-2">
+                Uncheck users to hide them from the Matrix View.
+              </p>
+              {allStaff.length > 0 ? allStaff.map(staff => (
+                <label key={staff.id} className="flex items-center gap-3 p-3 rounded-lg border border-outline-variant bg-surface-container-lowest hover:bg-surface-variant cursor-pointer transition-colors">
+                  <div className="relative flex items-center">
+                    <input 
+                      type="checkbox" 
+                      className="peer sr-only"
+                      checked={staff.showInMatrix}
+                      onChange={() => toggleUserMatrixVisibility(staff.id, staff.showInMatrix)}
+                    />
+                    <div className="w-5 h-5 rounded border border-outline peer-checked:bg-primary peer-checked:border-primary flex items-center justify-center transition-colors">
+                      <Check className="w-3.5 h-3.5 text-white opacity-0 peer-checked:opacity-100" />
+                    </div>
+                  </div>
+                  <span className="font-medium text-on-surface select-none">{staff.name}</span>
+                </label>
+              )) : (
+                <div className="text-center p-4 text-on-surface-variant italic text-sm border border-dashed border-outline-variant rounded-lg">
+                  No staff members available. Add them in Team Management.
+                </div>
+              )}
+            </div>
+
+            <div className="p-4 border-t border-outline-variant bg-surface flex justify-end shrink-0">
+              <button
+                onClick={() => setShowMatrixUsersModal(false)}
+                className="px-5 py-2.5 bg-primary text-white font-bold rounded-xl hover:bg-primary/90 transition-colors shadow-sm"
+              >
+                Done
+              </button>
+            </div>
           </div>
         </div>
       )}

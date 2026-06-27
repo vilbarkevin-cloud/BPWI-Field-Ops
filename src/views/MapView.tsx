@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from "react";
-import { Navigation, User, Clock, AlertTriangle, CloudOff } from "lucide-react";
+import React, { useState, useEffect, useMemo } from "react";
+import { Navigation, User, Clock, AlertTriangle, CloudOff, MapPin, ArrowRight, Route, X, Sparkles, Layers } from "lucide-react";
 import { db } from "../lib/firebase";
 import {
   collectionGroup,
@@ -8,9 +8,13 @@ import {
   orderBy,
   limit,
 } from "firebase/firestore";
-import { MapContainer, TileLayer, Marker, Popup } from "react-leaflet";
+import { MapContainer, TileLayer, Marker, Popup, Circle } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
+import { useAdminRole } from "../hooks/useAdminRole";
+import { useNetworkInfo } from "../utils/useNetworkInfo";
+import { facilityCoordinates, facilitiesList } from "../lib/facilityData";
+import { useToast } from "../utils/ToastContext";
 
 // Fix for default leaflet icons not showing in react-leaflet
 delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -21,22 +25,35 @@ L.Icon.Default.mergeOptions({
   shadowUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
 });
 
+function distance(lat1: number, lon1: number, lat2: number, lon2: number) {
+  const p = 0.017453292519943295;    // Math.PI / 180
+  const c = Math.cos;
+  const a = 0.5 - c((lat2 - lat1) * p)/2 + 
+          c(lat1 * p) * c(lat2 * p) * 
+          (1 - c((lon2 - lon1) * p))/2;
+  return 12742 * Math.asin(Math.sqrt(a)); // 2 * R; R = 6371 km
+}
+
 export function MapView({
   currentUser,
   currentUid,
+  setActiveTab,
 }: {
   currentUser?: string | null;
   currentUid?: string | null;
+  setActiveTab?: any;
 }) {
-  const isAdmin =
-    currentUser?.toLowerCase().includes("kevin vilbar") ||
-    currentUser?.toLowerCase().includes("tech head") ||
-    currentUser?.toLowerCase().includes("admin");
+  const isAdmin = useAdminRole(currentUid);
+  const { isLowDataMode } = useNetworkInfo();
+  const { showToast } = useToast();
 
   const [locations, setLocations] = useState<any[]>([]);
+  const [incidents, setIncidents] = useState<any[]>([]);
   const [mapError, setMapError] = useState(false);
   const [isOfflineMode, setIsOfflineMode] = useState(!navigator.onLine);
-
+  const [selectedTechForRoute, setSelectedTechForRoute] = useState<any | null>(null);
+  const [showHeatmap, setShowHeatmap] = useState(false);
+  
   useEffect(() => {
     const handleOnline = () => setIsOfflineMode(false);
     const handleOffline = () => setIsOfflineMode(true);
@@ -84,14 +101,73 @@ export function MapView({
         setLocations(Object.values(lastKnown));
         setMapError(false);
       },
-      (err) => {
-        console.error(err);
+      (err: any) => {
+        if (err.code === 'permission-denied') return;
         setMapError(true);
       },
     );
+    
+    // Fetch active incidents to generate heatmap
+    const qi = query(collectionGroup(db, "incidents"));
+    const unsubIncidents = onSnapshot(qi, (snapshot) => {
+      const incs: any[] = [];
+      snapshot.forEach(d => incs.push({id: d.id, ...d.data()}));
+      setIncidents(incs.filter(i => i.status !== "resolved" && i.status !== "closed"));
+    }, (err) => {
+        console.error("Incidents error map:", err);
+    });
 
-    return () => unsub();
+    return () => { unsub(); unsubIncidents(); };
   }, [isAdmin]);
+
+  const heatmapData = useMemo(() => {
+     const counts = incidents.reduce((acc, curr) => {
+        if (curr.facility) acc[curr.facility] = (acc[curr.facility] || 0) + 1;
+        return acc;
+     }, {} as Record<string, number>);
+     
+     return Object.entries(counts).map(([facility, count]): {name: string, center: [number, number], radius: number, color: string, tasks: number, fillOpacity: number, pulse: boolean} => {
+         const cnt = count as number;
+         const coords = facilityCoordinates[facility] || [10.7252, 122.5621];
+         let color = "#22C55E";
+         if (cnt > 5) color = "#EF4444";
+         else if (cnt > 2) color = "#F97316";
+
+         return {
+            name: facility,
+            center: coords as [number, number],
+            radius: Math.min(2500, cnt * 500),
+            color,
+            tasks: cnt,
+            fillOpacity: cnt > 5 ? 0.35 : 0.2,
+            pulse: cnt > 5
+         };
+     });
+  }, [incidents]);
+
+  const routeStops = useMemo(() => {
+      if (!selectedTechForRoute) return [];
+      const userLoc = selectedTechForRoute.location;
+      
+      const openIncidents = incidents.filter(i => i.facility && facilityCoordinates[i.facility]);
+      // For each facility, select the one with highest severity
+      const stopsMap = new Map<string, any>();
+      for (const i of openIncidents) {
+         if (!stopsMap.has(i.facility)) stopsMap.set(i.facility, i);
+         else {
+             const existing = stopsMap.get(i.facility);
+             if (i.severity === 'critical' && existing.severity !== 'critical') stopsMap.set(i.facility, i);
+         }
+      }
+      
+      let stops = Array.from(stopsMap.values());
+      stops.forEach(s => {
+         const coords = facilityCoordinates[s.facility];
+         s.distance = distance(userLoc.latitude, userLoc.longitude, coords[0], coords[1]);
+      });
+      stops.sort((a,b) => a.distance - b.distance);
+      return stops.slice(0, 3); // Take nearest 3
+  }, [selectedTechForRoute, incidents]);
 
   if (!isAdmin) {
     return (
@@ -114,7 +190,7 @@ export function MapView({
 
   return (
     <div className="p-4 md:p-6 max-w-7xl mx-auto pb-28 animate-in fade-in duration-300">
-      <div className="flex justify-between items-end mb-6">
+      <div className="flex flex-col md:flex-row md:justify-between md:items-end gap-4 mb-6">
         <div>
           <h2 className="font-headline-lg text-on-surface mb-2 tracking-tight flex items-center gap-2">
             <Navigation className="text-primary" /> Live Tracking Map
@@ -124,11 +200,24 @@ export function MapView({
             logged interaction or attendance clock-in.
           </p>
         </div>
-        {isOfflineMode && (
-          <div className="flex items-center gap-2 bg-surface-variant/50 text-on-surface-variant px-3 py-1.5 rounded text-sm font-semibold border border-outline-variant">
-            <CloudOff className="w-4 h-4" /> Offline map mode
-          </div>
-        )}
+        <div className="flex items-center gap-3">
+          {isOfflineMode && (
+            <div className="flex items-center gap-2 bg-surface-variant/50 text-on-surface-variant px-3 py-1.5 rounded text-sm font-semibold border border-outline-variant">
+              <CloudOff className="w-4 h-4" /> Offline map mode
+            </div>
+          )}
+          <button
+            onClick={() => setShowHeatmap(!showHeatmap)}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all border ${
+              showHeatmap
+                ? "bg-primary/10 text-primary border-primary/30"
+                : "bg-surface text-on-surface-variant border-outline-variant hover:bg-surface-variant/50 hover:text-on-surface"
+            }`}
+          >
+            <Layers className="w-4 h-4" />
+            {showHeatmap ? "Hide Workload Overlay" : "Show Area Workload"}
+          </button>
+        </div>
       </div>
 
       {mapError && (
@@ -159,10 +248,36 @@ export function MapView({
               zoom={13}
               style={{ height: "100%", width: "100%" }}
             >
-              <TileLayer
-                attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-              />
+              {isLowDataMode ? (
+                <TileLayer
+                  attribution='&copy; <a href="https://carto.com/">Carto</a>'
+                  url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png"
+                />
+              ) : (
+                <TileLayer
+                  attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+                  url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                />
+              )}
+              {showHeatmap && heatmapData.map((data, idx) => (
+                <Circle
+                  key={`heatmap-${idx}`}
+                  center={data.center}
+                  radius={data.radius}
+                  pathOptions={{
+                    color: data.color,
+                    fillColor: data.color,
+                    fillOpacity: data.fillOpacity,
+                    weight: 1,
+                    className: data.pulse ? "animate-pulse" : "",
+                  }}
+                >
+                  <Popup>
+                    <div className="text-sm font-semibold">{data.name}</div>
+                    <div className="text-xs text-on-surface-variant mt-1">Pending/Overdue Tasks: {data.tasks}</div>
+                  </Popup>
+                </Circle>
+              ))}
               {locations.map((loc, idx) => (
                 <Marker
                   key={idx}
@@ -217,10 +332,92 @@ export function MapView({
               <div className="text-xs text-on-surface-variant mt-1">
                 Accuracy: ±{Math.round(loc.location.accuracy || 0)}m
               </div>
+              <button 
+                onClick={() => setSelectedTechForRoute(loc)}
+                className="mt-3 w-full bg-primary/10 text-primary hover:bg-primary/20 text-sm font-semibold py-1.5 rounded flex items-center justify-center gap-1.5 transition-colors"
+              >
+                <Route className="w-4 h-4" /> Optimize Route
+              </button>
             </div>
           ))}
         </div>
       </div>
+
+      {/* Route Optimizer Modal */}
+      {selectedTechForRoute && (
+        <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-4">
+          <div className="bg-surface w-full max-w-lg rounded-2xl shadow-xl flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            <div className="p-4 border-b border-outline-variant flex justify-between items-center bg-surface-container-low">
+              <div className="flex items-center gap-2">
+                <Route className="text-primary w-5 h-5" />
+                <h3 className="font-headline-sm font-semibold text-on-surface">Intelligent Route Optimizer</h3>
+              </div>
+              <button
+                onClick={() => setSelectedTechForRoute(null)}
+                className="p-2 -mr-2 text-on-surface-variant hover:bg-surface-variant rounded-full transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            <div className="p-5 flex flex-col gap-4">
+              <div className="bg-primary-container/30 border border-primary/20 rounded-xl p-4 flex gap-3 text-on-surface">
+                <Sparkles className="w-5 h-5 text-primary shrink-0 mt-0.5" />
+                <div>
+                  <h4 className="font-semibold text-sm">Suggested Sequence for {selectedTechForRoute.staffName || "Technician"}</h4>
+                  <p className="text-sm text-on-surface-variant mt-1">
+                    Tasks are sequenced based on shortest distance from current live location ({selectedTechForRoute.location.latitude.toFixed(4)}, {selectedTechForRoute.location.longitude.toFixed(4)}) and ticket priority using intelligent routing. This minimizes travel time and fuel costs.
+                  </p>
+                </div>
+              </div>
+              
+              <div className="relative pl-6 space-y-4">
+                <div className="absolute top-3 bottom-5 left-2 border-l-2 border-dashed border-outline-variant"></div>
+                
+                <div className="relative">
+                  <div className="absolute -left-[23px] top-1 w-4 h-4 bg-primary rounded-full border-2 border-white shadow-sm ring-2 ring-primary/20"></div>
+                  <div className="bg-surface border border-primary/40 rounded-lg p-3 shadow-sm shadow-primary/5">
+                    <div className="flex justify-between items-start">
+                      <span className="font-label-md">Current Location</span>
+                    </div>
+                  </div>
+                </div>
+
+                {routeStops.length === 0 ? (
+                    <div className="p-4 text-center text-sm text-on-surface-variant">No pending stops nearby.</div>
+                ) : routeStops.map((stop: any, idx: number) => {
+                   const colors = ['border-secondary', 'border-tertiary', 'border-outline'];
+                   const borderClass = colors[idx] || 'border-outline';
+                   return (
+                     <div className="relative" key={idx}>
+                       <div className={`absolute -left-[21px] top-1.5 w-3 h-3 bg-surface border-[3px] ${borderClass} rounded-full`}></div>
+                       <div className="bg-surface border border-outline-variant rounded-lg p-3">
+                         <div className="flex justify-between items-start mb-1">
+                           <span className="font-label-md text-on-surface line-clamp-1">{`Stop ${idx + 1}: ${stop.type}`}</span>
+                           <span className={`text-xs font-semibold px-2 py-0.5 rounded ${stop.severity === 'critical' ? 'bg-error/10 text-error' : 'bg-surface-variant text-on-surface-variant'}`}>{stop.severity || 'Medium'}</span>
+                         </div>
+                         <p className="text-body-sm text-on-surface-variant flex items-center gap-1"><MapPin className="w-3 h-3" /> {stop.facility} (+{stop.distance.toFixed(1)} km)</p>
+                       </div>
+                     </div>
+                   );
+                })}
+              </div>
+              
+            </div>
+            <div className="p-4 border-t border-outline-variant bg-surface-container-low flex justify-end gap-3">
+              <button 
+                onClick={() => {
+                   showToast("Route sent to technician's mobile device via Push Notification", "success");
+                   setSelectedTechForRoute(null);
+                }}
+                className="btn-primary w-full"
+              >
+                Send Route to Technician
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

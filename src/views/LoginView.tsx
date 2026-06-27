@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { Droplet, Lock, User, Loader2, Mail, Eye, EyeOff } from 'lucide-react';
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile } from 'firebase/auth';
-import { auth } from '../lib/firebase';
+import { doc, setDoc } from 'firebase/firestore';
+import { auth, db } from '../lib/firebase';
 
 interface LoginViewProps {
   onLogin: (username: string, uid: string) => void;
@@ -39,13 +40,13 @@ export function LoginView({ onLogin }: LoginViewProps) {
     try {
       if (isSignUp) {
         const userCred = await createUserWithEmailAndPassword(auth, trimmedEmail, trimmedPassword);
-        let finalUsername = trimmedDisplayName;
-        
-        if (trimmedDisplayName.toLowerCase() === 'kevin vilbar' || trimmedDisplayName.toLowerCase() === 'admin' || trimmedDisplayName.toLowerCase() === 'kevin.vilbar') {
-          finalUsername = 'Kevin Vilbar - Tech Head';
-        }
-        
-        await updateProfile(userCred.user, { displayName: finalUsername });
+        await updateProfile(userCred.user, { displayName: trimmedDisplayName });
+        await setDoc(doc(db, "users", userCred.user.uid, "profile", "info"), {
+          role: trimmedEmail.endsWith('admin.com') ? 'admin' : 'tech',
+          email: trimmedEmail,
+          displayName: trimmedDisplayName,
+          createdAt: new Date().toISOString()
+        });
         // onLogin(finalUsername, userCred.user.uid); handled by App.tsx
       } else {
         await signInWithEmailAndPassword(auth, trimmedEmail, trimmedPassword);
@@ -104,7 +105,7 @@ export function LoginView({ onLogin }: LoginViewProps) {
                 type="text"
                 value={displayName}
                 onChange={(e) => setDisplayName(e.target.value)}
-                placeholder="e.g. Kevin Vilbar"
+                placeholder="e.g. John Doe"
                 className="form-input"
                 autoFocus={isSignUp}
               />
@@ -119,7 +120,7 @@ export function LoginView({ onLogin }: LoginViewProps) {
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="e.g. kevin@example.com"
+              placeholder="e.g. john@example.com"
               className="form-input"
               autoFocus={!isSignUp}
             />

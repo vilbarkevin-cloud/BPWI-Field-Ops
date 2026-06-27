@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Car, Plus, Search, Calendar, ChevronDown, Check, X, MapPin, Map, RefreshCw, Trash2, Edit3 } from 'lucide-react';
 import { db } from '../lib/firebase';
+import { useAdminRole } from '../hooks/useAdminRole';
 import { collection, doc, setDoc, onSnapshot, query, serverTimestamp, deleteDoc, collectionGroup, getDoc, updateDoc } from 'firebase/firestore';
 import SignatureCanvas from 'react-signature-canvas';
 
@@ -28,6 +29,12 @@ export interface TripTicket {
   vehicle: string;
   date: string;
   legs: TripLeg[];
+  speedoStart: string;
+  speedoEnd: string;
+  totalDistance: string;
+  fuelBalance: string;
+  fuelPurchased: string;
+  fuelConsumed: string;
   checklist: {
     brakes: boolean;
     turnSignals: boolean;
@@ -80,9 +87,10 @@ const defaultChecklist = {
   others: ''
 };
 
-export function TripTicketView({ isOnline = true, currentUid, currentUser }: { isOnline?: boolean; currentUid?: string | null; currentUser?: string | null }) {
-  const isAdmin = currentUser?.toLowerCase().includes('kevin vilbar') || currentUser?.toLowerCase().includes('tech head') || currentUser?.toLowerCase().includes('admin');
+export function TripTicketView({ isOnline = true, currentUid, currentUser, setActiveTab }: { isOnline?: boolean; currentUid?: string | null; currentUser?: string | null; setActiveTab?: any; }) {
+  const isAdmin = useAdminRole(currentUid);
   const [tickets, setTickets] = useState<TripTicket[]>([]);
+  const [visibleCount, setVisibleCount] = useState(20);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingUserId, setEditingUserId] = useState<string | null>(null); // track whose ticket it is
@@ -99,7 +107,14 @@ export function TripTicketView({ isOnline = true, currentUid, currentUser }: { i
   const [checklist, setChecklist] = useState(defaultChecklist);
   const [comments, setComments] = useState('');
   const [signature, setSignature] = useState<string | null>(null);
-  
+
+  const [speedoStart, setSpeedoStart] = useState('');
+  const [speedoEnd, setSpeedoEnd] = useState('');
+  const [totalDistance, setTotalDistance] = useState('');
+  const [fuelBalance, setFuelBalance] = useState('');
+  const [fuelPurchased, setFuelPurchased] = useState('');
+  const [fuelConsumed, setFuelConsumed] = useState('');
+
   const sigCanvas = useRef<SignatureCanvas>(null);
 
   useEffect(() => {
@@ -112,7 +127,8 @@ export function TripTicketView({ isOnline = true, currentUid, currentUser }: { i
         if (d.id === 'vehicles') v = d.data().list || [];
       });
       setSavedVehicles(v);
-    }, (error) => {
+    }, (error: any) => {
+      if (error.code === 'permission-denied') return;
       console.error("Vehicles listener error:", error);
     });
     return () => unsubV();
@@ -128,8 +144,8 @@ export function TripTicketView({ isOnline = true, currentUid, currentUser }: { i
        q = query(collection(db, `users/${currentUid}/tripTickets`));
     }
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const fetchedItems = snapshot.docs.map(docSnap => ({
+    const unsubscribe = onSnapshot(q as any, (snapshot: any) => {
+      const fetchedItems = snapshot.docs.map((docSnap: any) => ({
           id: docSnap.id,
           userId: docSnap.ref.parent.parent?.id,
           ...docSnap.data()
@@ -139,7 +155,8 @@ export function TripTicketView({ isOnline = true, currentUid, currentUser }: { i
       fetchedItems.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
       
       setTickets(fetchedItems);
-    }, (err) => {
+    }, (err: any) => {
+       if (err.code === 'permission-denied') return;
        console.error("Error fetching trip tickets:", err);
     });
 
@@ -157,6 +174,12 @@ export function TripTicketView({ isOnline = true, currentUid, currentUser }: { i
       setChecklist(ticket.checklist || defaultChecklist);
       setComments(ticket.comments || '');
       setSignature(ticket.signature || null);
+      setSpeedoStart(ticket.speedoStart || '');
+      setSpeedoEnd(ticket.speedoEnd || '');
+      setTotalDistance(ticket.totalDistance || '');
+      setFuelBalance(ticket.fuelBalance || '');
+      setFuelPurchased(ticket.fuelPurchased || '');
+      setFuelConsumed(ticket.fuelConsumed || '');
     } else {
       setEditingId(null);
       setDriver('');
@@ -166,6 +189,12 @@ export function TripTicketView({ isOnline = true, currentUid, currentUser }: { i
       setChecklist(defaultChecklist);
       setComments('');
       setSignature(null);
+      setSpeedoStart('');
+      setSpeedoEnd('');
+      setTotalDistance('');
+      setFuelBalance('');
+      setFuelPurchased('');
+      setFuelConsumed('');
     }
     setIsFormOpen(true);
   };
@@ -197,6 +226,12 @@ export function TripTicketView({ isOnline = true, currentUid, currentUser }: { i
       vehicle,
       date,
       legs,
+      speedoStart,
+      speedoEnd,
+      totalDistance,
+      fuelBalance,
+      fuelPurchased,
+      fuelConsumed,
       checklist,
       comments,
       signature: finalSignature,
@@ -378,6 +413,76 @@ export function TripTicketView({ isOnline = true, currentUid, currentUser }: { i
           </div>
 
           <div className="bg-surface border border-outline-variant rounded-xl p-5 shadow-sm">
+            <h3 className="text-lg font-semibold text-on-surface mb-4">Gasoline & Mileage</h3>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+              <div>
+                <label className="block text-label-md font-semibold text-on-surface-variant mb-1">Fuel Balance</label>
+                <input 
+                  type="number" 
+                  value={fuelBalance} 
+                  onChange={e => setFuelBalance(e.target.value)} 
+                  className="form-input" 
+                />
+              </div>
+              <div>
+                <label className="block text-label-md font-semibold text-on-surface-variant mb-1">Fuel Purchased</label>
+                <input 
+                  type="number" 
+                  value={fuelPurchased} 
+                  onChange={e => setFuelPurchased(e.target.value)} 
+                  className="form-input" 
+                />
+              </div>
+              <div>
+                <label className="block text-label-md font-semibold text-on-surface-variant mb-1">Total Fuel Consumed</label>
+                <input 
+                  type="number" 
+                  value={fuelConsumed} 
+                  onChange={e => setFuelConsumed(e.target.value)} 
+                  className="form-input" 
+                />
+              </div>
+              <div>
+                <label className="block text-label-md font-semibold text-on-surface-variant mb-1">Speedo Start</label>
+                <input 
+                  type="number" 
+                  value={speedoStart} 
+                  onChange={e => {
+                     setSpeedoStart(e.target.value);
+                     const s = parseFloat(e.target.value) || 0;
+                     const eVal = parseFloat(speedoEnd) || 0;
+                     if (eVal > s) setTotalDistance((eVal - s).toString());
+                  }} 
+                  className="form-input" 
+                />
+              </div>
+              <div>
+                <label className="block text-label-md font-semibold text-on-surface-variant mb-1">Speedo End</label>
+                <input 
+                  type="number" 
+                  value={speedoEnd} 
+                  onChange={e => {
+                     setSpeedoEnd(e.target.value);
+                     const eVal = parseFloat(e.target.value) || 0;
+                     const s = parseFloat(speedoStart) || 0;
+                     if (eVal > s) setTotalDistance((eVal - s).toString());
+                  }} 
+                  className="form-input" 
+                />
+              </div>
+              <div>
+                <label className="block text-label-md font-semibold text-on-surface-variant mb-1">Total Distance</label>
+                <input 
+                  type="number" 
+                  value={totalDistance} 
+                  onChange={e => setTotalDistance(e.target.value)} 
+                  className="form-input bg-primary-container/20" 
+                />
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-surface border border-outline-variant rounded-xl p-5 shadow-sm">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-semibold text-on-surface">Trip Legs / Destinations</h3>
               <button onClick={addLeg} className="btn-secondary py-1.5 px-3 text-sm">
@@ -426,36 +531,6 @@ export function TripTicketView({ isOnline = true, currentUid, currentUser }: { i
                      <div>
                        <label className="block text-xs font-semibold text-on-surface-variant mb-1">Return Time (Office)</label>
                        <input type="time" value={leg.returnTimeOffice} onChange={e => updateLeg(index, 'returnTimeOffice', e.target.value)} className="form-input py-1.5 text-sm" />
-                     </div>
-                     
-                     <div className="sm:col-span-2 lg:col-span-3 grid grid-cols-3 gap-2 mt-2">
-                       <div>
-                         <label className="block text-xs font-semibold text-on-surface-variant mb-1">Gas Balance</label>
-                         <input type="text" value={leg.gasBalance} onChange={e => updateLeg(index, 'gasBalance', e.target.value)} className="form-input py-1 text-xs" />
-                       </div>
-                       <div>
-                         <label className="block text-xs font-semibold text-on-surface-variant mb-1">Gas Purchased</label>
-                         <input type="text" value={leg.gasPurchased} onChange={e => updateLeg(index, 'gasPurchased', e.target.value)} className="form-input py-1 text-xs" />
-                       </div>
-                       <div>
-                         <label className="block text-xs font-semibold text-on-surface-variant mb-1">Gas Total</label>
-                         <input type="text" value={leg.gasTotal} onChange={e => updateLeg(index, 'gasTotal', e.target.value)} className="form-input py-1 text-xs" />
-                       </div>
-                     </div>
-
-                     <div className="sm:col-span-2 lg:col-span-3 grid grid-cols-3 gap-2 mt-2">
-                       <div>
-                         <label className="block text-xs font-semibold text-on-surface-variant mb-1">Speedo Beg.</label>
-                         <input type="number" value={leg.speedoBeg} onChange={e => updateLeg(index, 'speedoBeg', e.target.value)} className="form-input py-1 text-xs" />
-                       </div>
-                       <div>
-                         <label className="block text-xs font-semibold text-on-surface-variant mb-1">Speedo End</label>
-                         <input type="number" value={leg.speedoEnd} onChange={e => updateLeg(index, 'speedoEnd', e.target.value)} className="form-input py-1 text-xs" />
-                       </div>
-                       <div>
-                         <label className="block text-xs font-semibold text-on-surface-variant mb-1">Distance Travel</label>
-                         <input type="number" value={leg.distance} onChange={e => updateLeg(index, 'distance', e.target.value)} className="form-input py-1 text-xs bg-primary-container/20" />
-                       </div>
                      </div>
                   </div>
                 </div>
@@ -572,7 +647,7 @@ export function TripTicketView({ isOnline = true, currentUid, currentUser }: { i
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-        {tickets.map(ticket => (
+        {tickets.slice(0, visibleCount).map(ticket => (
           <div key={ticket.id} className="bg-surface border border-outline-variant rounded-xl p-5 shadow-sm hover:shadow-md transition-shadow">
             <div className="flex items-start justify-between mb-4">
               <div>
@@ -606,6 +681,17 @@ export function TripTicketView({ isOnline = true, currentUid, currentUser }: { i
               )}
             </div>
 
+            <div className="grid grid-cols-2 gap-2 text-xs mb-5 items-center justify-between border-t border-outline-variant pt-3">
+              <div className="flex flex-col">
+                 <span className="text-on-surface-variant">Fuel Consumed</span>
+                 <span className="font-semibold text-on-surface">{ticket.fuelConsumed ? `${ticket.fuelConsumed}L` : 'N/A'}</span>
+              </div>
+              <div className="flex flex-col text-right">
+                 <span className="text-on-surface-variant">Distance</span>
+                 <span className="font-semibold text-on-surface">{ticket.totalDistance ? `${ticket.totalDistance}km` : 'N/A'}</span>
+              </div>
+            </div>
+
             <div className="flex items-center gap-2 pt-4 border-t border-outline-variant">
               <button onClick={() => handleOpenForm(ticket)} className="btn-secondary flex-1 py-1.5 text-sm">
                 View / Edit
@@ -632,6 +718,17 @@ export function TripTicketView({ isOnline = true, currentUid, currentUser }: { i
           </div>
         )}
       </div>
+
+      {tickets.length > visibleCount && (
+        <div className="text-center mt-6">
+          <button 
+            onClick={() => setVisibleCount(v => v + 20)}
+            className="px-6 py-2 bg-surface-container-high hover:bg-surface-container-highest text-on-surface rounded-full transition-colors text-sm font-semibold"
+          >
+            Load More
+          </button>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,0 +1,82 @@
+src/views/InventoryView.tsx:34:  isOnline = true,
+src/views/InventoryView.tsx:105:    setIsSyncing(true);
+src/views/MapView.tsx:32:  const isAdmin = true; // All authenticated users have admin rights in this prototype
+src/views/MapView.tsx:42:    const handleOffline = () => setIsOfflineMode(true);
+src/views/MapView.tsx:90:        setMapError(true);
+src/views/IncidentsView.tsx:93:    setIsExporting(true);
+src/views/IncidentsView.tsx:138:    setIsSubmitting(true);
+src/views/IncidentsView.tsx:169:      setSubmitted(true);
+src/views/LoginView.tsx:38:    setIsLoggingIn(true);
+src/views/AttendanceView.tsx:165:  const isAdmin = true; // All authenticated users have admin rights in this prototype
+src/views/AttendanceView.tsx:240:        { enableHighAccuracy: true, timeout: 10000 },
+src/views/AttendanceView.tsx:402:    let noOffDay = true;
+src/views/AttendanceView.tsx:416:        hasShifts = true;
+src/views/AttendanceView.tsx:506:        inUse = true;
+src/views/AttendanceView.tsx:538:    setShowShiftModal(true);
+src/views/AttendanceView.tsx:552:    setShowShiftModal(true);
+src/views/ActivityView.tsx:109:  isOnline = true,
+src/views/ActivityView.tsx:420:            { merge: true },
+src/views/ActivityView.tsx:433:  const [isLocating, setIsLocating] = useState(true);
+src/views/ActivityView.tsx:436:    setIsLocating(true);
+src/views/ActivityView.tsx:454:        { enableHighAccuracy: true, timeout: 5000 },
+src/views/ActivityView.tsx:525:      setIsSubmitting(true);
+src/views/ActivityView.tsx:527:      setIsSavingDraft(true);
+src/views/ActivityView.tsx:627:                matches = true;
+src/views/ActivityView.tsx:632:                matches = true;
+src/views/TasksView.tsx:66:  const isAdmin = true; // All authenticated users have admin rights in this prototype
+src/views/TasksView.tsx:133:              isSynced: true,
+src/views/TasksView.tsx:153:            isSynced: true,
+src/views/TasksView.tsx:211:        isSynced: true,
+src/views/TasksView.tsx:640:              onClick={() => setIsModalOpen(true)}
+src/views/TasksView.tsx:743:                onClick={() => setIsModalOpen(true)}
+src/views/DashboardView.tsx:198:  const [isSyncing, setIsSyncing] = useState(true);
+src/views/DashboardView.tsx:433:              onClick={() => setIsAreasModalOpen(true)}
+src/views/DashboardView.tsx:496:              onClick={() => setIsExportModalOpen(true)}
+src/views/KpiView.tsx:76:    if (!itemDate) return true;
+src/views/KpiView.tsx:78:    if (isNaN(d.getTime())) return true;
+src/views/TripTicketView.tsx:83:export function TripTicketView({ isOnline = true, currentUid, currentUser }: { isOnline?: boolean; currentUid?: string | null; currentUser?: string | null }) {
+src/views/TripTicketView.tsx:84:  const isAdmin = true; // All authenticated users have admin rights in this prototype
+src/views/TripTicketView.tsx:172:    setIsFormOpen(true);
+src/views/TripTicketView.tsx:214:      await setDoc(docRef, newTicket, { merge: true });
+src/views/TripTicketView.tsx:228:        await setDoc(doc(db, 'shared/vehicles'), { list: updated }, { merge: true });
+src/views/TripTicketView.tsx:249:        await setDoc(doc(db, 'shared/vehicles'), { list: updated }, { merge: true });
+src/views/TripTicketView.tsx:346:                           setIsAddingVehicle(true);
+src/views/PmsView.tsx:61:  const [needsAuth, setNeedsAuth] = useState(true);
+src/views/PmsView.tsx:102:      () => setNeedsAuth(true),
+src/views/PmsView.tsx:110:      header: true,
+src/views/PmsView.tsx:111:      skipEmptyLines: true,
+src/views/PmsView.tsx:196:      setIsSyncing(true);
+src/views/PmsView.tsx:210:    setIsSubmittingTask(true);
+src/views/PmsView.tsx:267:            onClick={() => setIsImporting(true)}
+src/views/PmsView.tsx:290:            onClick={() => setShowNewScheduleModal(true)}
+src/views/StaffView.tsx:71:  const isAdmin = true; // All authenticated users have admin rights in this prototype
+src/views/StaffView.tsx:98:        localStorage.setItem("staffListV3", "true");
+src/views/StaffView.tsx:119:              { merge: true },
+src/views/StaffView.tsx:138:          localStorage.setItem("staffListV3", "true");
+src/views/StaffView.tsx:176:        { merge: true },
+src/views/StaffView.tsx:232:        { merge: true },
+src/views/StaffView.tsx:261:        isSynced: true,
+src/views/StaffView.tsx:503:              onClick={() => setIsAddingUser(true)}
+src/views/StaffView.tsx:555:              onClick={() => setShowBulkReassignModal(true)}
+src/components/AreasSettingsModal.tsx:93:      header: true,
+src/components/AreasSettingsModal.tsx:94:      skipEmptyLines: true,
+src/components/Sidebar.tsx:51:  const isAdmin = true; // All authenticated users have admin rights in this prototype
+src/components/TopBar.tsx:25:  isOnline = true,
+src/utils/useNetworkInfo.ts:14:        const saveData = connection.saveData === true;
+src/utils/useNetworkInfo.ts:19:          setIsLowDataMode(true);
+src/utils/useNetworkInfo.ts:21:          setIsLowDataMode(true);
+src/utils/useNetworkInfo.ts:23:          setIsLowDataMode(true);
+src/utils/useSyncQueue.ts:98:                autoRetry: item.autoRetry === false ? true : false,
+src/utils/useSyncQueue.ts:114:    setIsSyncing(true);
+src/utils/useSyncQueue.ts:134:          return { ...t, isSynced: true };
+src/utils/useSyncQueue.ts:141:        updated = true;
+src/utils/useSyncQueue.ts:154:          !a.isSynced && a.autoRetry !== false ? { ...a, isSynced: true } : a,
+src/utils/useSyncQueue.ts:157:        updated = true;
+src/utils/useSyncQueue.ts:170:          !i.isSynced && i.autoRetry !== false ? { ...i, isSynced: true } : i,
+src/utils/useSyncQueue.ts:173:        updated = true;
+src/lib/pmsData.ts:11:    header: true,
+src/lib/pmsData.ts:12:    skipEmptyLines: true,
+src/lib/workspaceAuth.ts:39:    isSigningIn = true;
+src/App.tsx:53:    const handleOnline = () => setIsOnline(true);
+src/App.tsx:156:            onMenuClick={() => setIsMobileMenuOpen(true)}
+src/App.tsx:172:                onClick={() => setIsSyncDrawerOpen(true)}

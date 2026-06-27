@@ -3,7 +3,9 @@
   "description": "A field operations management app for technical tracking, forms, workflow verification, and staff performance.",
   "requestFramePermissions": [
     "geolocation",
-    "camera"
+    "camera",
+    "publickey-credentials-create",
+    "publickey-credentials-get"
   ],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

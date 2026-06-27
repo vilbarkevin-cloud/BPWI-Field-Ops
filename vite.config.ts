@@ -16,6 +16,7 @@ export default defineConfig(() => {
         },
         workbox: {
           globPatterns: ["**/*.{js,css,html,ico,png,svg}"],
+          maximumFileSizeToCacheInBytes: 10000000,
           runtimeCaching: [
             {
               urlPattern: /^https:\/\/[a-c]\.tile\.openstreetmap\.org\/.*/i,
@@ -52,6 +53,7 @@ export default defineConfig(() => {
       alias: {
         "@": path.resolve(__dirname, "."),
       },
+      dedupe: ["react", "react-dom"],
     },
     define: {
       "process.env.GOOGLE_MAPS_PLATFORM_KEY": JSON.stringify(

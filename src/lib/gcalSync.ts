@@ -33,7 +33,7 @@ export const syncToGoogleCalendar = async (
   }
 
   const rows = getParsedPmsData() as PmsRow[];
-  const validRows = rows.filter(r => r.SCHED && r['PUMP STATION'] && (r['FLUSHING SCOPE'] || r['Activity']));
+  const validRows = rows.filter(r => r.SCHED && r['PUMP STATION'] && r['Activity']);
   
   const total = validRows.length;
   let current = 0;
@@ -47,7 +47,7 @@ export const syncToGoogleCalendar = async (
     }
     const endStr = getNextDayDateStr(row.SCHED);
 
-    const activity = row.Activity || row['FLUSHING SCOPE'] || 'Activity';
+    const activity = row.Activity || 'Activity';
     let summary = `[${activity}] ${row['PUMP STATION']}`;
     if (row.REMARKS) summary += ` - ${row.REMARKS}`;
 

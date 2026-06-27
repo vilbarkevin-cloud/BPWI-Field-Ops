@@ -10,6 +10,7 @@ export interface ActivityType {
 }
 
 export const ACTIVITY_TYPES: ActivityType[] = [
+  { id: "tankering",         label: "Tankering Activity" },
   { id: "meter_inst",        label: "Meter Installation" },
   { id: "meter_replacement", label: "Meter Replacement" },
   { id: "meter_test",        label: "Meter Test" },
